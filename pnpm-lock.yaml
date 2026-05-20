@@ -14,7 +14,7 @@ importers:
     dependencies:
       effect:
         specifier: beta
-        version: 4.0.0-beta.67
+        version: 4.0.0-beta.68
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -612,8 +612,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  effect@4.0.0-beta.67:
-    resolution: {integrity: sha512-cQ1pVkbmB45VnFffQcmXuIuAT6b+t74JPKeJRqv6qT6MhilYQbLccrBu//jrxtlWpILfIzz09+s1QQrhOFmFKQ==}
+  effect@4.0.0-beta.68:
+    resolution: {integrity: sha512-JVmKXJvpyKBzr4xEr9nRlA6wQoInsI2WCfu2F69On49hvyDAmAOMb5ACa51HJksvRdqbSg7Zf0d++NQebY9cFQ==}
 
   es-module-lexer@1.7.0:
     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
@@ -782,6 +782,10 @@ packages:
 
   postcss@8.5.14:
     resolution: {integrity: sha512-SoSL4+OSEtR99LHFZQiJLkT59C5B1amGO1NzTwj7TT1qCUgUO6hxOvzkOYxD+vMrXBM3XJIKzokoERdqQq/Zmg==}
+    engines: {node: ^10 || ^12 || >=14}
+
+  postcss@8.5.15:
+    resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
     engines: {node: ^10 || ^12 || >=14}
 
   pure-rand@8.4.0:
@@ -1047,7 +1051,7 @@ snapshots:
       '@oxc-project/runtime': 0.129.0
       '@oxc-project/types': 0.129.0
       lightningcss: 1.32.0
-      postcss: 8.5.14
+      postcss: 8.5.15
     optionalDependencies:
       '@types/node': 24.12.4
       fsevents: 2.3.3
@@ -1161,7 +1165,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  effect@4.0.0-beta.67:
+  effect@4.0.0-beta.68:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.8.0
@@ -1338,6 +1342,12 @@ snapshots:
   pngjs@7.0.0: {}
 
   postcss@8.5.14:
+    dependencies:
+      nanoid: 3.3.12
+      picocolors: 1.1.1
+      source-map-js: 1.2.1
+
+  postcss@8.5.15:
     dependencies:
       nanoid: 3.3.12
       picocolors: 1.1.1
