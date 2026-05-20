@@ -8,7 +8,7 @@
     "url": "git+https://github.com/putdotio/vref.git"
   },
   "bin": {
-    "vref": "dist/cli.js"
+    "vref": "./dist/cli.mjs"
   },
   "files": [
     "dist",
@@ -19,21 +19,22 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "build": "vp pack src/index.ts src/cli.ts --dts",
     "check": "vp check .",
     "clean": "rm -rf coverage dist",
-    "describe": "node ./dist/cli.js describe --output json",
-    "pack:dry": "pnpm pack --dry-run",
-    "test": "vitest run",
-    "verify": "pnpm run check && pnpm run build && pnpm run test && pnpm run pack:dry"
+    "describe": "node ./dist/cli.mjs describe --output json",
+    "pack:dry": "vp pack src/index.ts src/cli.ts --dts && npm pack --dry-run",
+    "prepack": "vp pack src/index.ts src/cli.ts --dts",
+    "test": "vp test",
+    "verify": "vp check . && vp pack src/index.ts src/cli.ts --dts && vp test && npm pack --dry-run"
   },
   "dependencies": {
     "effect": "beta"
@@ -48,7 +49,7 @@
   "engines": {
     "node": ">=24.14.0"
   },
-  "packageManager": "pnpm@11.1.0",
+  "packageManager": "pnpm@11.0.0",
   "pnpm": {
     "ignoredBuiltDependencies": [
       "msgpackr-extract"

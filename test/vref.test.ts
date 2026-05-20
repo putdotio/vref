@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
 import { runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";

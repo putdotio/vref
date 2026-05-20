@@ -31,16 +31,14 @@ jobs:
         uses: voidzero-dev/setup-vp@ca1c46663915d6c1042ae23bd39ab85718bfb0fa # v1.10.0
         with:
           node-version-file: ".node-version"
+          version: "0.1.21"
           cache: true
 
-      - name: Set up pnpm
-        run: npm install --global pnpm@11.1.0
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: vp install
 
       - name: Verify repository
-        run: pnpm run verify
+        run: vp run verify
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
@@ -80,16 +78,14 @@ jobs:
         uses: voidzero-dev/setup-vp@ca1c46663915d6c1042ae23bd39ab85718bfb0fa # v1.10.0
         with:
           node-version-file: ".node-version"
+          version: "0.1.21"
           cache: false
 
-      - name: Set up pnpm
-        run: npm install --global pnpm@11.1.0
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: vp install
 
       - name: Build release artifacts
-        run: pnpm run build
+        run: vp run build
 
       - name: Configure release bot remote
         run: git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
