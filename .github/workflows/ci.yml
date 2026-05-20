@@ -33,8 +33,11 @@ jobs:
           node-version-file: ".node-version"
           cache: true
 
+      - name: Enable pnpm
+        run: corepack enable
+
       - name: Install dependencies
-        run: vp install
+        run: pnpm install --frozen-lockfile
 
       - name: Verify repository
         run: pnpm run verify
@@ -79,8 +82,11 @@ jobs:
           node-version-file: ".node-version"
           cache: false
 
+      - name: Enable pnpm
+        run: corepack enable
+
       - name: Install dependencies
-        run: vp install
+        run: pnpm install --frozen-lockfile
 
       - name: Build release artifacts
         run: pnpm run build
