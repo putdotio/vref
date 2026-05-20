@@ -37,7 +37,7 @@ jobs:
         run: vp install
 
       - name: Verify repository
-        run: vp run verify
+        run: pnpm run verify
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
@@ -83,7 +83,7 @@ jobs:
         run: vp install
 
       - name: Build release artifacts
-        run: vp run build
+        run: pnpm run build
 
       - name: Configure release bot remote
         run: git remote set-url origin "https://x-access-token:${RELEASE_BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
