@@ -1,8 +1,10 @@
 import { mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { buildGallery } from "../src/build.js";
+import { buildGallery, validateGallery } from "../src/build.js";
+import { runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";
 import { resolveServableFile } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
@@ -20,7 +22,179 @@ describe("vref", () => {
     const html = await readFile(join(root, ".vref/index.html"), "utf8");
     expect(result.screenshotCount).toBe(1);
     expect(html).toContain("put<span>.</span>io Roku visual reference");
+    expect(html).toContain("1 curated Roku reference for quick visual review.");
     expect(html).toContain("screenshots/roku-720p/home.jpg");
+    expect(html).toContain("min-height: 100dvh");
+    expect(html).toContain("margin-top: auto");
+    expect(html).toContain("max-width: 1120px");
+    expect(html).toContain("padding: 10px 0 16px");
+    expect(html).toContain("min-height: 24px");
+    expect(html).toContain("minmax(min(100%, 340px), 1fr)");
+    expect(html).toContain("1 reference &middot; Updated May 19, 2026");
+    expect(html).toContain(".footer code { color: var(--text-2); font: inherit; }");
+    expect(html).toContain(
+      ".nav-btn:not(:has(.filter-control:checked)):hover { color: var(--text); background: rgba(255,255,255,0.075); }",
+    );
+    expect(html).toContain(".nav-btn:has(.filter-control:checked):hover { background: #FFD85C; }");
+    expect(html).not.toContain(".nav-btn:hover { color: var(--text-2); background: var(--bg-3); }");
+    expect(html).not.toContain('class="stats"');
+    expect(html).not.toContain("stat-value");
+    expect(html).not.toContain("stat-label");
+    expect(html).not.toContain("Curated Roku screenshots.");
+    expect(html).toContain(
+      '<div class="item-meta"><span>Main pages</span><span>1280x720 / 5 B</span></div>',
+    );
+    expect(html).toContain('<div class="item-tags"><span class="tag">home</span>');
+    expect(html).not.toContain("item-arrow");
+    expect(html).not.toContain("&rarr;");
+    expect(html).not.toContain("item-icon");
+    expect(html).not.toContain(">TV<");
+  });
+
+  it("keeps single tags filterable without rendering a card tag chip", async () => {
+    const root = await makeFixture("screenshots/roku-720p/home.jpg", ["home"]);
+
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const html = await readFile(join(root, ".vref/index.html"), "utf8");
+    expect(html).toContain('data-tags="home"');
+    expect(html).not.toContain('<span class="tag">home</span>');
+  });
+
+  it("validates a manifest and assets without writing a gallery", async () => {
+    const root = await makeFixture();
+
+    const result = await validateGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.screenshotCount).toBe(1);
+    expect(result.groupCount).toBe(1);
+    expect(result.deviceCount).toBe(1);
+    await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
+  });
+
+  it("renders tag filter buttons only for tags used by multiple screenshots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
+    await writeFile(join(root, ".vref/screenshots/roku-720p/search.jpg"), "image");
+    await writeFile(join(root, ".vref/screenshots/roku-720p/settings.jpg"), "image");
+
+    const manifest: VrefManifest = {
+      version: 1,
+      title: "put.io Roku visual reference",
+      description: "Curated Roku screenshots.",
+      updatedAt: "2026-05-19T13:35:00.000Z",
+      screenshots: [
+        {
+          id: "search",
+          title: "Search",
+          group: "Main pages",
+          platform: "Roku",
+          device: "Roku 720p",
+          viewport: { width: 1280, height: 720 },
+          file: "screenshots/roku-720p/search.jpg",
+          capturedAt: "2026-05-19T13:34:00.000Z",
+          sizeBytes: 5,
+          tags: ["search", "shared", "keyboard"],
+          notes: ["Search page."],
+        },
+        {
+          id: "settings",
+          title: "Settings",
+          group: "Main pages",
+          platform: "Roku",
+          device: "Roku 720p",
+          viewport: { width: 1280, height: 720 },
+          file: "screenshots/roku-720p/settings.jpg",
+          capturedAt: "2026-05-19T13:34:00.000Z",
+          sizeBytes: 5,
+          tags: ["search", "shared", "device"],
+          notes: ["Settings page."],
+        },
+      ],
+    };
+
+    await writeFile(join(root, ".vref/manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const html = await readFile(join(root, ".vref/index.html"), "utf8");
+    expect(html).toContain('data-filter-group="tag" data-filter-value="search"');
+    expect(html).toContain('data-filter-group="tag" data-filter-value="shared"');
+    expect(html).toContain('type="radio" name="filter-tag" id="filter-tag-search"');
+    expect(html).toContain(
+      '.container:has(#filter-tag-search:checked) #gallery .card:not([data-tags~="search"]) { display: none; }',
+    );
+    expect(html).not.toContain('data-filter-group="tag" data-filter-value="keyboard"');
+    expect(html).not.toContain('data-filter-group="tag" data-filter-value="device"');
+    expect(html).toContain('data-tags="search shared keyboard"');
+    expect(html).toContain('data-tags="search shared device"');
+  });
+
+  it("omits filter rows that only have one available value", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
+    await writeFile(join(root, ".vref/screenshots/roku-720p/home.jpg"), "image");
+    await writeFile(join(root, ".vref/screenshots/roku-720p/settings.jpg"), "image");
+
+    const manifest: VrefManifest = {
+      version: 1,
+      title: "put.io Roku visual reference",
+      description: "Curated Roku screenshots.",
+      updatedAt: "2026-05-19T13:35:00.000Z",
+      screenshots: [
+        {
+          id: "home",
+          title: "Home",
+          group: "Main pages",
+          platform: "Roku",
+          device: "Roku 720p",
+          viewport: { width: 1280, height: 720 },
+          file: "screenshots/roku-720p/home.jpg",
+          capturedAt: "2026-05-19T13:34:00.000Z",
+          sizeBytes: 5,
+          tags: ["navigation"],
+          notes: ["Home page."],
+        },
+        {
+          id: "settings",
+          title: "Settings",
+          group: "Settings",
+          platform: "Roku",
+          device: "Roku 720p",
+          viewport: { width: 1280, height: 720 },
+          file: "screenshots/roku-720p/settings.jpg",
+          capturedAt: "2026-05-19T13:34:00.000Z",
+          sizeBytes: 5,
+          tags: ["device"],
+          notes: ["Settings page."],
+        },
+      ],
+    };
+
+    await writeFile(join(root, ".vref/manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const html = await readFile(join(root, ".vref/index.html"), "utf8");
+    expect(html).not.toContain('data-filter-group="platform"');
+    expect(html).not.toContain('data-filter-group="tag"');
+    expect(html).toContain('data-filter-group="group" data-filter-value="main-pages"');
+    expect(html).toContain('data-filter-group="group" data-filter-value="settings"');
   });
 
   it("refuses servable file paths that resolve outside the serve root", async () => {
@@ -92,25 +266,60 @@ describe("vref", () => {
   it("describes build output flags without colliding with output format", () => {
     const schema = JSON.stringify(describeCli());
 
+    expect(schema).toContain('"validate"');
+    expect(schema).toContain('"flags":["--check","--dry-run"]');
+    expect(schema).toContain('"fields"');
+    expect(schema).toContain('"allowedExtensions":[".jpg",".jpeg",".png",".webp"]');
     expect(schema).toContain('"flags":["--out","--output-path"]');
     expect(schema).not.toContain('"approve"');
     expect(schema).not.toContain('"output":{"type":"string","default":".vref/index.html"}');
   });
+
+  it("prints command help without touching default repo-local paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-"));
+
+    const result = await captureConsoleLog(() =>
+      Effect.runPromise(runCli(["serve", "--help"], root)),
+    );
+
+    expect(result.logs.join("\n")).toContain("vref serve");
+    expect(result.logs.join("\n")).toContain("vref serve [--dir .vref]");
+  });
 });
 
-async function makeFixture(file = "screenshots/roku-720p/home.jpg"): Promise<string> {
+async function captureConsoleLog<Result>(
+  run: () => Promise<Result>,
+): Promise<{ logs: string[]; result: Result }> {
+  const originalLog = console.log;
+  const logs: string[] = [];
+  console.log = (...values: unknown[]) => {
+    logs.push(values.map(String).join(" "));
+  };
+
+  try {
+    const result = await run();
+    return { logs, result };
+  } finally {
+    console.log = originalLog;
+  }
+}
+
+async function makeFixture(
+  file = "screenshots/roku-720p/home.jpg",
+  tags = ["home", "navigation"],
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vref-"));
   await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
   await writeFile(join(root, ".vref/screenshots/roku-720p/home.jpg"), "image");
 
-  const manifest = makeManifest(file);
+  const manifest = makeManifest(file, tags);
 
   await writeFile(join(root, ".vref/manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
   return root;
 }
 
-function makeManifest(file: string): VrefManifest {
+function makeManifest(file: string, tags: string[]): VrefManifest {
   return {
     version: 1,
     title: "put.io Roku visual reference",
@@ -127,7 +336,7 @@ function makeManifest(file: string): VrefManifest {
         file,
         capturedAt: "2026-05-19T13:34:00.000Z",
         sizeBytes: 5,
-        tags: ["home", "navigation"],
+        tags,
         notes: ["Home menu."],
       },
     ],

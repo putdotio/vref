@@ -19,6 +19,8 @@ pnpm run build
 Run the local CLI against a repo that has `.vref/manifest.json`:
 
 ```bash
+node ./dist/cli.js validate --output json
+node ./dist/cli.js build --check --output json
 node ./dist/cli.js build
 node ./dist/cli.js serve
 ```

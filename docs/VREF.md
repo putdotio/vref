@@ -47,15 +47,25 @@ Capture and curate screenshots with the owning app repo's platform harness, then
 vref build
 ```
 
-`vref` does not copy or approve screenshots. Product repos own capture mechanics, screenshot file updates, and manifest metadata updates.
-
-## Build And Serve
+Use a no-write validation pass when reviewing a manifest or checking CI:
 
 ```bash
+vref validate --output json
+vref build --check --output json
+```
+
+`vref` does not copy or approve screenshots. Product repos own capture mechanics, screenshot file updates, and manifest metadata updates.
+
+## Validate, Build, And Serve
+
+```bash
+vref validate
 vref build
 vref serve
 ```
 
+`validate` checks the manifest and screenshot assets without writing files.
+`build --check` performs the same no-write validation through the build command.
 `build` validates the manifest, confirms screenshot files exist, and writes `.vref/index.html`.
 `serve` serves the `.vref/` directory on `127.0.0.1:4173` by default.
 
@@ -91,4 +101,4 @@ The same manifest and screenshots can later move from `docs/visual/` to `.vref/`
 ## Agent Workflow
 
 Before UI work, inspect `.vref/manifest.json` and `.vref/index.html` when they exist.
-Use `vref describe --output json` for command schemas and prefer JSON command output when scripting.
+Use `vref describe --output json` for command and manifest schemas, `vref validate --output json` before trusting a reference set, and prefer JSON command output when scripting.

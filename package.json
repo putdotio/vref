@@ -8,7 +8,7 @@
     "url": "git+https://github.com/putdotio/vref.git"
   },
   "bin": {
-    "vref": "./dist/cli.js"
+    "vref": "dist/cli.js"
   },
   "files": [
     "dist",

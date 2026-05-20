@@ -22,7 +22,9 @@
 - `pnpm run check`
 - `pnpm run test`
 - `pnpm run verify`
+- `vref validate --output json`
 - `vref build`
+- `vref build --check --output json`
 - `vref serve`
 - `vref describe --output json`
 
@@ -32,4 +34,5 @@
 - Keep `.vref/manifest.json` and `.vref/screenshots/*` safe for the owning repo's visibility before committing
 - Do not add visual diffing, PR comments, cross-repo aggregation, hosted services, or platform-specific capture without a new design pass
 - Use typed manifest parsing and structured CLI output; agents should prefer `--output json`
+- Prefer `vref validate --output json` or `vref build --check --output json` before any workflow that should not mutate files
 - Update docs and the vref skill when command behavior or screenshot safety rules change

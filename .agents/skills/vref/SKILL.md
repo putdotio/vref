@@ -12,15 +12,21 @@ The gallery is the repo-owned visual baseline; capture mechanics stay platform-o
 
 1. Check for `.vref/manifest.json` and `.vref/index.html`.
 2. Run `vref describe --output json` when command behavior is unfamiliar.
-3. Inspect `.vref/index.html` or the listed screenshots before changing UI.
-4. After capture, ask the product repo's platform-owned harness to update the screenshot files and manifest metadata.
-5. Rebuild the gallery:
+3. Validate the reference set before trusting it:
+
+```bash
+vref validate --output json
+```
+
+4. Inspect `.vref/index.html` or the listed screenshots before changing UI.
+5. After capture, ask the product repo's platform-owned harness to update the screenshot files and manifest metadata.
+6. Rebuild the gallery:
 
 ```bash
 vref build --output json
 ```
 
-6. Review the generated `.vref/index.html` before handing off UI work.
+7. Review the generated `.vref/index.html` before handing off UI work.
 
 ## Safety Rules
 
@@ -33,5 +39,7 @@ vref build --output json
 ## Command Notes
 
 - `vref build` validates `.vref/manifest.json`, checks assets, and writes `.vref/index.html`.
+- `vref validate` checks `.vref/manifest.json` and assets without writing files.
+- `vref build --check` is the build-command no-write validation path.
 - `vref serve` serves `.vref/` on `127.0.0.1:4173` by default.
 - Use `--output json` for agent automation.

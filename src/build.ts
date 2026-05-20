@@ -4,7 +4,7 @@ import { VrefError } from "./errors.js";
 import { readManifest } from "./manifest.js";
 import { assertNoSymlinkInPath, resolveInsideCwd, workspacePaths } from "./path-safety.js";
 import { renderGallery } from "./render.js";
-import type { VrefBuildResult } from "./types.js";
+import type { VrefBuildResult, VrefValidateResult } from "./types.js";
 
 export type BuildGalleryOptions = {
   cwd: string;
@@ -15,6 +15,31 @@ export type BuildGalleryOptions = {
 export async function buildGallery(options: BuildGalleryOptions): Promise<VrefBuildResult> {
   const paths = workspacePaths(options.cwd, options.manifestPath);
   const outputPath = resolveInsideCwd(paths.cwd, options.outputPath, "output");
+  const validation = await validateGallery({
+    cwd: options.cwd,
+    manifestPath: options.manifestPath,
+  });
+  const manifest = await readManifest(paths.manifestPath);
+
+  await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
+  await mkdir(dirname(outputPath), { recursive: true });
+  await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
+  await writeFile(outputPath, renderGallery(manifest, { manifestLabel: options.manifestPath }));
+
+  return {
+    manifestPath: validation.manifestPath,
+    outputPath,
+    screenshotCount: validation.screenshotCount,
+    groupCount: validation.groupCount,
+    deviceCount: validation.deviceCount,
+  };
+}
+
+export async function validateGallery(options: {
+  cwd: string;
+  manifestPath: string;
+}): Promise<VrefValidateResult> {
+  const paths = workspacePaths(options.cwd, options.manifestPath);
   const manifest = await readManifest(paths.manifestPath);
 
   for (const screenshot of manifest.screenshots) {
@@ -36,14 +61,8 @@ export async function buildGallery(options: BuildGalleryOptions): Promise<VrefBu
     }
   }
 
-  await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
-  await mkdir(dirname(outputPath), { recursive: true });
-  await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
-  await writeFile(outputPath, renderGallery(manifest, { manifestLabel: options.manifestPath }));
-
   return {
     manifestPath: paths.manifestPath,
-    outputPath,
     screenshotCount: manifest.screenshots.length,
     groupCount: new Set(manifest.screenshots.map((screenshot) => screenshot.group)).size,
     deviceCount: new Set(manifest.screenshots.map((screenshot) => screenshot.device)).size,

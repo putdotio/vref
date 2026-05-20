@@ -32,3 +32,10 @@ export type VrefBuildResult = {
   groupCount: number;
   deviceCount: number;
 };
+
+export type VrefValidateResult = {
+  manifestPath: string;
+  screenshotCount: number;
+  groupCount: number;
+  deviceCount: number;
+};

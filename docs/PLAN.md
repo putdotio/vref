@@ -5,8 +5,9 @@
 `@putdotio/vref` is a small render-and-serve CLI.
 
 - `vref build` validates a repo-local manifest and screenshot assets, then writes a static gallery.
+- `vref validate` and `vref build --check` validate without writing files.
 - `vref serve` serves the generated reference folder locally.
-- `vref describe --output json` exposes the command contract for agents.
+- `vref describe --output json` exposes the command and manifest contract for agents.
 - App repos own screenshot capture, file updates, and manifest metadata updates.
 
 ## Non-Goals

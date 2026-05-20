@@ -2,7 +2,7 @@
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { Effect } from "effect";
-import { buildGallery } from "./build.js";
+import { buildGallery, validateGallery } from "./build.js";
 import { describeCli } from "./describe.js";
 import { errorToJson, normalizeError, VrefError } from "./errors.js";
 import { serve } from "./serve.js";
@@ -25,8 +25,26 @@ type ParsedArgs = {
 export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: string) {
   const args = parseArgs(argv);
 
+  if (getBoolean(args, "help")) {
+    yield* Effect.sync(() => printHelp(args.command));
+    return;
+  }
+
   switch (args.command) {
     case "build": {
+      if (getBoolean(args, "check") || getBoolean(args, "dry-run")) {
+        const result = yield* promiseBoundary(() =>
+          validateGallery({
+            cwd,
+            manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          }),
+        );
+        yield* Effect.sync(() =>
+          print(args.output, result, `validated ${result.screenshotCount} references`),
+        );
+        return;
+      }
+
       const result = yield* promiseBoundary(() =>
         buildGallery({
           cwd,
@@ -35,6 +53,19 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
         }),
       );
       yield* Effect.sync(() => print(args.output, result, `wrote ${result.outputPath}`));
+      return;
+    }
+
+    case "validate": {
+      const result = yield* promiseBoundary(() =>
+        validateGallery({
+          cwd,
+          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+        }),
+      );
+      yield* Effect.sync(() =>
+        print(args.output, result, `validated ${result.screenshotCount} references`),
+      );
       return;
     }
 
@@ -61,14 +92,16 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
 
     case "describe": {
       const result = describeCli();
-      yield* Effect.sync(() => print(args.output, result, "vref: build, serve, describe"));
+      yield* Effect.sync(() =>
+        print(args.output, result, "vref: build, validate, serve, describe"),
+      );
       return;
     }
 
     case "help":
     case "--help":
     case "-h":
-      yield* Effect.sync(printHelp);
+      yield* Effect.sync(() => printHelp());
       return;
 
     default:
@@ -127,6 +160,10 @@ function getString(args: ParsedArgs, key: string): string | undefined {
   return undefined;
 }
 
+function getBoolean(args: ParsedArgs, key: string): boolean {
+  return args.flags.get(key) === true;
+}
+
 function optionalPositiveInteger(
   args: ParsedArgs,
   key: string,
@@ -152,11 +189,48 @@ function print(output: OutputFormat, result: unknown, human: string): void {
   }
 }
 
-function printHelp(): void {
+function printHelp(command?: string): void {
+  if (command === "build") {
+    console.log(`vref build
+
+Usage:
+  vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--check] [--dry-run] [--output json]
+`);
+    return;
+  }
+
+  if (command === "validate") {
+    console.log(`vref validate
+
+Usage:
+  vref validate [--manifest .vref/manifest.json] [--output json]
+`);
+    return;
+  }
+
+  if (command === "serve") {
+    console.log(`vref serve
+
+Usage:
+  vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json]
+`);
+    return;
+  }
+
+  if (command === "describe") {
+    console.log(`vref describe
+
+Usage:
+  vref describe --output json
+`);
+    return;
+  }
+
   console.log(`vref
 
 Usage:
-  vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--output json]
+  vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--check] [--dry-run] [--output json]
+  vref validate [--manifest .vref/manifest.json] [--output json]
   vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json]
   vref describe --output json
 `);

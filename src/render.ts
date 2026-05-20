@@ -31,7 +31,7 @@ function makeViewModel(manifest: VrefManifest, options: RenderGalleryOptions): G
     groups: uniqueSorted(manifest.screenshots.map((screenshot) => screenshot.group)),
     platforms: uniqueSorted(manifest.screenshots.map((screenshot) => screenshot.platform)),
     devices: uniqueSorted(manifest.screenshots.map((screenshot) => screenshot.device)),
-    tags: uniqueSorted(manifest.screenshots.flatMap((screenshot) => screenshot.tags)),
+    tags: repeatedSortedTags(manifest.screenshots),
   };
 }
 
@@ -42,7 +42,7 @@ function renderHead(viewModel: GalleryViewModel): string {
 <meta name="theme-color" content="#09090B">
 <title>${escapeHtml(viewModel.manifest.title)}</title>
 <style>
-${renderStyles()}
+${renderStyles(viewModel)}
 </style>
 </head>`;
 }
@@ -65,42 +65,56 @@ ${renderClientScript()}
 
 function renderHero(viewModel: GalleryViewModel): string {
   const { manifest } = viewModel;
+  const subtitle = renderHeroSubtitle(viewModel);
 
   return `  <div class="hero">
     <h1>${renderPutioTitle(manifest.title)}</h1>
-    <p>${escapeHtml(manifest.description)}</p>
-    <div class="stats">
-      ${renderStat(manifest.screenshots.length, "Screens")}
-      ${renderStat(viewModel.groups.length, "Groups")}
-      ${renderStat(viewModel.devices.length, "Devices")}
-    </div>
+    <p>${escapeHtml(subtitle)}</p>
   </div>`;
 }
 
-function renderStat(value: number, label: string): string {
-  return `<div class="stat"><div class="stat-value">${value}</div><div class="stat-label">${escapeHtml(label)}</div></div>`;
+function renderHeroSubtitle(viewModel: GalleryViewModel): string {
+  const referenceCount = viewModel.manifest.screenshots.length;
+  const referenceLabel = referenceCount === 1 ? "reference" : "references";
+  const platformLabel = viewModel.platforms.length === 1 ? `${viewModel.platforms[0]} ` : "";
+
+  return `${referenceCount} curated ${platformLabel}${referenceLabel} for quick visual review.`;
 }
 
 function renderFilters(viewModel: GalleryViewModel): string {
+  const rows = [
+    renderFilterRow("Platform", "platform", viewModel.platforms),
+    renderFilterRow("Group", "group", viewModel.groups),
+    renderFilterRow("Tag", "tag", viewModel.tags),
+  ].filter((row) => row.length > 0);
+
+  if (rows.length === 0) {
+    return "";
+  }
+
   return `  <div class="filters">
-${renderFilterRow("Platform", "platform", ["All", ...viewModel.platforms])}
-${renderFilterRow("Group", "group", ["All", ...viewModel.groups])}
-${renderFilterRow("Tag", "tag", ["All", ...viewModel.tags])}
+${rows.join("\n")}
   </div>`;
 }
 
 function renderFilterRow(label: string, group: string, labels: string[]): string {
+  if (labels.length <= 1) {
+    return "";
+  }
+
   return `    <div class="filter-row">
       <span class="filter-label">${escapeHtml(label)}</span>
-      <div class="filter-group">${renderFilterButtons(group, labels)}</div>
+      <div class="filter-group">${renderFilterButtons(group, ["All", ...labels])}</div>
     </div>`;
 }
 
 function renderGalleryGrid(viewModel: GalleryViewModel): string {
   const { manifest } = viewModel;
   const cards = manifest.screenshots.map(renderCard).join("\n    ");
+  const referenceCount = manifest.screenshots.length;
+  const referenceLabel = referenceCount === 1 ? "reference" : "references";
 
-  return `  <div class="results-count"><span id="results-count">${manifest.screenshots.length}</span> visible &middot; updated ${escapeHtml(manifest.updatedAt)}</div>
+  return `  <div class="results-count">${referenceCount} ${referenceLabel} &middot; Updated ${escapeHtml(formatUpdatedAt(manifest.updatedAt))}</div>
   <div class="grid" id="gallery">
     ${cards}
   </div>`;
@@ -123,37 +137,53 @@ function renderFilterButtons(group: string, labels: string[]): string {
   return labels
     .map((label, index) => {
       const value = slug(label);
-      const activeClass = index === 0 ? " active" : "";
-      const ariaPressed = index === 0 ? "true" : "false";
+      const id = filterInputId(group, value);
+      const checked = index === 0 ? " checked" : "";
 
-      return `<button class="nav-btn${activeClass}" type="button" aria-pressed="${ariaPressed}" data-filter-group="${escapeHtml(group)}" data-filter-value="${escapeHtml(value)}">${escapeHtml(label)}</button>`;
+      return `<label class="nav-btn" data-filter-group="${escapeHtml(group)}" data-filter-value="${escapeHtml(value)}"><input class="filter-control" type="radio" name="filter-${escapeHtml(group)}" id="${escapeHtml(id)}"${checked}><span>${escapeHtml(label)}</span></label>`;
     })
     .join("");
 }
 
+function repeatedSortedTags(screenshots: VrefScreenshot[]): string[] {
+  const counts = new Map<string, number>();
+
+  for (const screenshot of screenshots) {
+    for (const tag of screenshot.tags) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+
+  return uniqueSorted(
+    [...counts.entries()].filter((entry) => entry[1] > 1).map((entry) => entry[0]),
+  );
+}
+
 function renderCard(screenshot: VrefScreenshot): string {
   const tagList = screenshot.tags.map(slug).join(" ");
-  const visibleTags = screenshot.tags
-    .slice(0, 3)
-    .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
-    .join("");
+  const visibleTagsHtml =
+    screenshot.tags.length > 1
+      ? `<div class="item-tags">${screenshot.tags
+          .slice(0, 3)
+          .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
+          .join("")}</div>`
+      : "";
   const metadata = `${screenshot.viewport.width}x${screenshot.viewport.height} / ${formatBytes(screenshot.sizeBytes)}`;
   const platformSlug = slug(screenshot.platform);
 
   return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformSlug)}" data-group="${escapeHtml(slug(screenshot.group))}" data-tags="${escapeHtml(tagList)}">
       <img class="preview" src="${escapeHtml(screenshot.file)}" alt="" loading="lazy">
       <div class="card-body">
-        <div class="item-icon ${escapeHtml(platformSlug)}">${escapeHtml(iconLabel(screenshot.platform))}</div>
         <div class="item-info">
           <div class="item-name">${escapeHtml(screenshot.title)}</div>
-          <div class="item-meta"><span>${escapeHtml(screenshot.group)}</span><span>${escapeHtml(metadata)}</span>${visibleTags}</div>
+          <div class="item-meta"><span>${escapeHtml(screenshot.group)}</span><span>${escapeHtml(metadata)}</span></div>
+          ${visibleTagsHtml}
         </div>
-        <div class="item-arrow">&rarr;</div>
       </div>
     </a>`;
 }
 
-function renderStyles(): string {
+function renderStyles(viewModel: GalleryViewModel): string {
   return `  @import url('https://static.put.io/fonts/gt-america/standard/font.css');
   @import url('https://static.put.io/fonts/gt-america/mono/font.css');
   @import url('https://static.put.io/fonts/gt-america/extended/font.css');
@@ -185,65 +215,87 @@ function renderStyles(): string {
   }
   button, a { -webkit-tap-highlight-color: transparent; }
   button { font: inherit; }
-  .container { max-width: 1180px; margin: 0 auto; padding: 64px 24px; }
-  .hero { margin-bottom: 40px; }
-  .hero h1 { font-size: 32px; font-weight: 700; letter-spacing: 0; margin-bottom: 8px; }
+  .container {
+    max-width: 1120px;
+    min-height: 100dvh;
+    margin: 0 auto;
+    padding: 56px 24px 44px;
+    display: flex;
+    flex-direction: column;
+  }
+  .hero { margin-bottom: 30px; }
+  .hero h1 { font-size: 30px; font-weight: 600; letter-spacing: 0; margin-bottom: 0; }
   .hero h1 span { color: var(--yellow); }
-  .hero p { font-size: 16px; color: var(--text-2); max-width: 680px; line-height: 1.6; margin-bottom: 20px; }
-  .stats { display: flex; gap: 24px; flex-wrap: wrap; }
-  .stat { font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace; }
-  .stat-value { font-size: 20px; font-weight: 700; color: var(--yellow); }
-  .stat-label { font-size: 11px; color: var(--solid); text-transform: uppercase; letter-spacing: 0.08em; }
+  .hero p {
+    max-width: 520px;
+    margin: 6px 0 0;
+    color: var(--text-2);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .filter-control {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
   .filters {
     position: sticky;
     top: 0;
     z-index: 10;
     background: var(--bg);
-    padding: 12px 0 10px;
+    padding: 10px 0 16px;
+    border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
-    margin-bottom: 16px;
+    margin-bottom: 18px;
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
-  .filter-row { display: flex; gap: 6px; align-items: center; overflow-x: auto; scrollbar-width: none; }
+  .filter-row { display: flex; gap: 7px; align-items: center; overflow-x: auto; scrollbar-width: none; }
   .filter-row::-webkit-scrollbar { display: none; }
   .filter-label {
     font-size: 10px;
     color: var(--solid);
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    margin-right: 6px;
     font-weight: 600;
-    width: 68px;
+    width: 60px;
     flex: 0 0 auto;
   }
-  .filter-group { display: flex; gap: 2px; align-items: center; }
+  .filter-group { display: flex; gap: 4px; align-items: center; }
   .nav-btn {
-    background: none;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255,255,255,0.025);
     border: none;
-    border-radius: 4px;
-    padding: 3px 8px;
+    border-radius: 5px;
+    padding: 2px 7px;
     font-size: 11px;
-    color: var(--solid);
+    color: rgba(250,250,250,0.58);
     cursor: pointer;
     white-space: nowrap;
-    min-height: 28px;
+    min-height: 24px;
     transition: transform 140ms var(--ease-out);
   }
+  .nav-btn span { pointer-events: none; }
   .nav-btn:active { transform: scale(0.97); }
-  .nav-btn:focus-visible, .modal-btn:focus-visible, .card:focus-visible {
+  .nav-btn:has(.filter-control:focus-visible), .modal-btn:focus-visible, .card:focus-visible {
     outline: 2px solid var(--yellow);
     outline-offset: 3px;
   }
-  .nav-btn.active { color: var(--bg); background: var(--yellow); font-weight: 600; }
+  .nav-btn:has(.filter-control:checked) { color: #15130A; background: var(--yellow); font-weight: 600; }
+${renderFilterStateCss(viewModel)}
   .results-count {
     font-size: 11px;
     color: var(--solid);
-    margin-bottom: 12px;
+    margin-bottom: 16px;
     font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 18px; }
   .card {
     display: block;
     text-decoration: none;
@@ -264,47 +316,43 @@ function renderStyles(): string {
     outline: 1px solid rgba(255,255,255,0.08);
     outline-offset: -1px;
   }
-  .card-body { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
-  .item-icon {
-    width: 26px;
-    height: 26px;
-    border-radius: 5px;
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: 700;
-    background: rgba(244,114,182,0.12);
-    color: var(--pink);
-    text-transform: uppercase;
-  }
-  .item-icon.web, .item-icon.desktop { background: rgba(96,165,250,0.12); color: var(--blue); }
-  .item-icon.ios, .item-icon.android { background: rgba(52,211,153,0.12); color: var(--green); }
+  .card-body { display: flex; align-items: flex-start; gap: 10px; padding: 14px; }
   .item-info { flex: 1; min-width: 0; }
-  .item-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item-meta {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--solid);
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
     font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
     margin-top: 2px;
+  }
+  .item-tags {
+    display: flex;
+    gap: 5px;
     flex-wrap: wrap;
+    margin-top: 8px;
   }
   .tag {
     font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
     font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-    background: rgba(253, 206, 69, 0.1);
-    color: var(--yellow);
+    background: rgba(253, 206, 69, 0.12);
+    border: 1px solid rgba(253, 206, 69, 0.14);
+    color: #F8D867;
   }
-  .item-arrow { color: var(--border); font-size: 12px; flex: 0 0 auto; }
-  .footer { text-align: center; padding: 48px 0 0; font-size: 12px; color: var(--solid); }
-  .footer code { color: var(--text-2); font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace; }
+  .footer {
+    text-align: center;
+    margin-top: auto;
+    padding: 56px 0 0;
+    color: var(--solid);
+    font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+  }
+  .footer code { color: var(--text-2); font: inherit; }
   .modal-overlay {
     display: flex;
     position: fixed;
@@ -365,20 +413,19 @@ function renderStyles(): string {
   }
   .modal-frame img { display: block; width: 100%; height: auto; max-height: calc(100vh - 132px); object-fit: contain; }
   @media (hover: hover) and (pointer: fine) {
-    .nav-btn:hover { color: var(--text-2); background: var(--bg-3); }
-    .card:hover { border-color: var(--border); background: var(--bg-3); transform: translateY(-1px); }
-    .card:hover .item-arrow { color: var(--yellow); }
+    .nav-btn:not(:has(.filter-control:checked)):hover { color: var(--text); background: rgba(255,255,255,0.075); }
+    .nav-btn:has(.filter-control:checked):hover { background: #FFD85C; }
+    .card:hover { border-color: var(--border); background: var(--bg-3); transform: translateY(-1px); box-shadow: 0 18px 44px rgba(0,0,0,0.28); }
     .modal-btn:hover { background: rgba(255,255,255,0.15); color: var(--text); }
   }
-  @media (min-width: 721px) {
-    .hero p { font-size: 15px; }
-  }
   @media (max-width: 720px) {
-    .container { padding: 40px 16px; }
+    .container { padding: 36px 16px 32px; }
     .grid { grid-template-columns: 1fr; }
+    .hero { margin-bottom: 28px; }
     .hero h1 { font-size: 28px; }
-    .stats { gap: 18px; }
-    .nav-btn { min-height: 34px; padding: 4px 9px; }
+    .filters { padding: 8px 0 16px; margin-bottom: 14px; }
+    .filter-label { width: 54px; }
+    .nav-btn { min-height: 34px; padding: 4px 10px; }
     .modal-overlay { padding: 14px; }
     .modal-header { flex-wrap: wrap; }
     .modal-title { flex-basis: 100%; }
@@ -395,30 +442,47 @@ function renderStyles(): string {
   }`;
 }
 
+function renderFilterStateCss(viewModel: GalleryViewModel): string {
+  const visibilityRules = [
+    ...filterValues("platform", viewModel.platforms)
+      .filter((filter) => filter.value !== "all")
+      .map(
+        (filter) =>
+          `  .container:has(#${filter.id}:checked) #gallery .card:not([data-platform="${filter.value}"]) { display: none; }`,
+      ),
+    ...filterValues("group", viewModel.groups)
+      .filter((filter) => filter.value !== "all")
+      .map(
+        (filter) =>
+          `  .container:has(#${filter.id}:checked) #gallery .card:not([data-group="${filter.value}"]) { display: none; }`,
+      ),
+    ...filterValues("tag", viewModel.tags)
+      .filter((filter) => filter.value !== "all")
+      .map(
+        (filter) =>
+          `  .container:has(#${filter.id}:checked) #gallery .card:not([data-tags~="${filter.value}"]) { display: none; }`,
+      ),
+  ];
+
+  return visibilityRules.join("\n");
+}
+
+function filterValues(group: string, labels: string[]): { id: string; value: string }[] {
+  if (labels.length <= 1) {
+    return [];
+  }
+
+  return ["all", ...labels.map(slug)].map((value) => ({ id: filterInputId(group, value), value }));
+}
+
 function renderClientScript(): string {
-  return `  const state = { platform: 'all', group: 'all', tag: 'all' };
-  const cards = Array.from(document.querySelectorAll('[data-card]'));
-  const resultCount = document.getElementById('results-count');
+  return `  const cards = Array.from(document.querySelectorAll('[data-card]'));
   const modal = document.getElementById('modal');
   const modalTitle = document.getElementById('modal-title');
   const modalImage = document.getElementById('modal-image');
   const modalOpen = document.getElementById('modal-open');
   const modalClose = document.getElementById('modal-close');
   let lastFocusedElement = null;
-
-  document.querySelectorAll('[data-filter-group]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const group = button.dataset.filterGroup;
-      const value = button.dataset.filterValue;
-      state[group] = value;
-      document.querySelectorAll('[data-filter-group="' + group + '"]').forEach((other) => {
-        const active = other === button;
-        other.classList.toggle('active', active);
-        other.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
-      applyFilters();
-    });
-  });
 
   cards.forEach((card) => {
     card.addEventListener('click', (event) => {
@@ -451,19 +515,6 @@ function renderClientScript(): string {
       lastFocusedElement.focus({ preventScroll: true });
       lastFocusedElement = null;
     }
-  }
-
-  function applyFilters() {
-    let visible = 0;
-    cards.forEach((card) => {
-      const platformMatch = state.platform === 'all' || card.dataset.platform === state.platform;
-      const groupMatch = state.group === 'all' || card.dataset.group === state.group;
-      const tagMatch = state.tag === 'all' || card.dataset.tags.split(' ').includes(state.tag);
-      const show = platformMatch && groupMatch && tagMatch;
-      card.hidden = !show;
-      if (show) visible += 1;
-    });
-    resultCount.textContent = String(visible);
   }`;
 }
 
@@ -471,23 +522,8 @@ function renderPutioTitle(title: string): string {
   return escapeHtml(title).replace("put.io", "put<span>.</span>io");
 }
 
-function iconLabel(platform: string): string {
-  const value = platform.toLowerCase();
-
-  if (value.includes("roku") || value.includes("tv")) {
-    return "TV";
-  }
-  if (value.includes("ios")) {
-    return "iOS";
-  }
-  if (value.includes("android")) {
-    return "AND";
-  }
-  if (value.includes("web")) {
-    return "WEB";
-  }
-
-  return platform.slice(0, 3);
+function filterInputId(group: string, value: string): string {
+  return `filter-${group}-${value}`;
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -500,6 +536,21 @@ function formatBytes(bytes: number): string {
   }
 
   return `${Math.round(bytes / 1024)} KB`;
+}
+
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(date);
 }
 
 function slug(value: string): string {

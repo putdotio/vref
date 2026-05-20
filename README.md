@@ -43,6 +43,13 @@ Build the gallery:
 vref build
 ```
 
+Validate without writing `index.html`:
+
+```bash
+vref validate --output json
+vref build --check --output json
+```
+
 After the owning app repo captures or updates screenshots, rebuild the gallery:
 
 ```bash
