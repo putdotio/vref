@@ -25,4 +25,4 @@
 - Manifest and screenshots live in the product repo, usually under `.vref/`.
 - The manifest path can be overridden for migrating repos such as `docs/visual/manifest.json`.
 - Build and serve reject unsafe paths, traversal, URL-like asset paths, and symlink escapes.
-- `putio-design` remains for prototypes and visual experiments, not app screenshot aggregation.
+- Prototype and visual-experiment repos remain separate; app screenshots stay in the owning app repo.

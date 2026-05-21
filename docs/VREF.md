@@ -7,7 +7,7 @@ It is not a screenshot capture harness and it is not a visual regression system.
 
 - Product repos own `.vref/manifest.json`, `.vref/screenshots/*`, and capture commands.
 - `@putdotio/vref` owns validation, gallery rendering, local serving, and command introspection.
-- `putio-design` remains for prototypes and visual experiments, not app screenshot aggregation.
+- Prototype and visual-experiment repos remain separate; app screenshots stay in the owning app repo.
 
 Default shape:
 
@@ -96,7 +96,7 @@ The same manifest and screenshots can later move from `docs/visual/` to `.vref/`
 - Do not commit private screenshots, auth codes, secrets, local IPs, real account identifiers, content IDs, or local absolute paths.
 - Use synthetic or public-safe account state.
 - Prefer exact app screenshots over reconstructed browser mockups.
-- Keep each app's visual references in that app repo; do not aggregate screenshots in `putio-design` by default.
+- Keep each app's visual references in that app repo; do not aggregate screenshots in a central prototype repo by default.
 
 ## Agent Workflow
 
