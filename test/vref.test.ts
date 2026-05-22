@@ -314,6 +314,19 @@ describe("vref", () => {
 
   it("adds a manifest screenshot from raw json with dry-run support", async () => {
     const root = await makeFixture();
+    const currentManifest = makeManifest("screenshots/roku-720p/home.jpg", ["home", "navigation"]);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      `${JSON.stringify(
+        {
+          ...currentManifest,
+          owner: "keep-me",
+          screenshots: [{ ...currentManifest.screenshots[0], sourceCommit: "abc123" }],
+        },
+        null,
+        2,
+      )}\n`,
+    );
     const screenshot = {
       id: "settings",
       title: "Settings",
@@ -362,6 +375,8 @@ describe("vref", () => {
     expect(write.logs.join("\n")).toContain('"dryRun": false');
     expect(write.logs.join("\n")).toContain('"assetExists": true');
     expect(afterWrite).toContain('"id": "settings"');
+    expect(afterWrite).toContain('"owner": "keep-me"');
+    expect(afterWrite).toContain('"sourceCommit": "abc123"');
   });
 
   it("rejects unknown fields before mutating files", async () => {

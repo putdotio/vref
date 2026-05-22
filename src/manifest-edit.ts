@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { VrefError } from "./errors.js";
-import { readManifest, screenshotFromJson, writeManifest } from "./manifest.js";
+import { readManifestDocument, screenshotFromJson, writeManifestDocument } from "./manifest.js";
 import { assertNoSymlinkInPath, workspacePaths } from "./path-safety.js";
 import type { VrefManifestAddResult, VrefScreenshot } from "./types.js";
 
@@ -15,7 +15,7 @@ export type AddScreenshotOptions = {
 export async function addScreenshot(options: AddScreenshotOptions): Promise<VrefManifestAddResult> {
   const paths = workspacePaths(options.cwd, options.manifestPath);
   await assertNoSymlinkInPath(paths.cwd, paths.manifestPath, "manifest");
-  const manifest = await readManifest(paths.manifestPath);
+  const { document, manifest } = await readManifestDocument(paths.manifestPath);
 
   if (manifest.screenshots.some((screenshot) => screenshot.id === options.screenshot.id)) {
     throw new VrefError(
@@ -26,13 +26,14 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
 
   const assetPath = join(paths.vrefDir, options.screenshot.file);
   const assetExists = await screenshotAssetExists(paths.vrefDir, assetPath);
-  const nextManifest = {
-    ...manifest,
-    screenshots: [...manifest.screenshots, options.screenshot],
+  const nextScreenshots = [...readRawScreenshots(document), options.screenshot];
+  const nextDocument = {
+    ...document,
+    screenshots: nextScreenshots,
   };
 
   if (!options.dryRun) {
-    await writeManifest(paths.manifestPath, nextManifest);
+    await writeManifestDocument(paths.manifestPath, nextDocument);
   }
 
   return {
@@ -40,7 +41,7 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
     dryRun: options.dryRun,
     manifestPath: paths.manifestPath,
     screenshot: options.screenshot,
-    screenshotCount: nextManifest.screenshots.length,
+    screenshotCount: nextScreenshots.length,
   };
 }
 
@@ -74,6 +75,14 @@ async function screenshotAssetExists(rootPath: string, assetPath: string): Promi
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+function readRawScreenshots(document: Record<string, unknown>): unknown[] {
+  if (Array.isArray(document.screenshots)) {
+    return document.screenshots;
+  }
+
+  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", "manifest:screenshots must be an array");
 }
 
 function messageFrom(error: unknown): string {

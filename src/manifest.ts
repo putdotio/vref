@@ -4,6 +4,13 @@ import { assertSupportedImage, safeManifestAssetPath } from "./path-safety.js";
 import type { VrefManifest, VrefScreenshot, VrefViewport } from "./types.js";
 
 export async function readManifest(path: string): Promise<VrefManifest> {
+  const { manifest } = await readManifestDocument(path);
+  return manifest;
+}
+
+export async function readManifestDocument(
+  path: string,
+): Promise<{ manifest: VrefManifest; document: Record<string, unknown> }> {
   let raw: string;
 
   try {
@@ -25,11 +32,22 @@ export async function readManifest(path: string): Promise<VrefManifest> {
     );
   }
 
-  return manifestFromUnknown(parsed, path);
+  const document = requireRecord(parsed, path);
+  return {
+    document,
+    manifest: manifestFromUnknown(document, path),
+  };
 }
 
 export async function writeManifest(path: string, manifest: VrefManifest): Promise<void> {
   await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+export async function writeManifestDocument(
+  path: string,
+  document: Record<string, unknown>,
+): Promise<void> {
+  await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);
 }
 
 export function screenshotFromJson(value: unknown, path: string): VrefScreenshot {
