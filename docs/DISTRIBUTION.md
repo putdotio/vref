@@ -29,6 +29,13 @@ There is no deploy pipeline for the first slice.
 `vref` is a versioned package and CLI, not a running app or hosted service.
 Use the release pipeline for npm publishing; add a deploy workflow only if the repo later owns a hosted demo or service.
 
+## Package Contents
+
+The npm package includes `dist`, `README.md`, `docs`, `skills`, `AGENTS.md`,
+and `SECURITY.md`. The reusable vref skill lives at `skills/vref/SKILL.md` so
+consumer repos and shared skill installers can discover it without treating this
+repo's private `.agents/` folder as a distribution surface.
+
 ## First Release Checklist
 
 - Configure npm Trusted Publishing for `putdotio/vref`, workflow `ci.yml`, and Environment `release`.

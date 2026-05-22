@@ -11,10 +11,12 @@
     "vref": "./dist/cli.mjs"
   },
   "files": [
+    "AGENTS.md",
     "dist",
-    ".agents/skills/vref/SKILL.md",
+    "docs",
     "README.md",
-    "LICENSE"
+    "SECURITY.md",
+    "skills"
   ],
   "type": "module",
   "exports": {

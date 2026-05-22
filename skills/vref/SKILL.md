@@ -1,6 +1,6 @@
 ---
 name: vref
-description: Inspect and maintain repo-local put.io visual references before UI work. Use when a repo has `.vref/`, when updating screenshots, or when validating screenshot-backed UI evidence with the `vref` CLI.
+description: Use when inspecting, validating, rebuilding, serving, or updating repo-local put.io visual references with the `vref` CLI, especially for visual regression, screenshot comparison, UI snapshot testing, or UI work in repos that have `.vref/` screenshots and manifest metadata.
 ---
 
 # vref
@@ -19,14 +19,24 @@ vref validate --output json
 ```
 
 4. Inspect `.vref/index.html` or the listed screenshots before changing UI.
-5. After capture, ask the product repo's platform-owned harness to update the screenshot files and manifest metadata.
-6. Rebuild the gallery:
+5. If validation fails, fix missing assets, unsafe paths, or manifest metadata in the owning repo, then rerun validation before relying on the gallery.
+6. For new captures, use the owning repo's platform harness or docs to update screenshot files and manifest metadata. `vref` does not capture screenshots itself.
+7. Rebuild the gallery:
 
 ```bash
 vref build --output json
 ```
 
-7. Review the generated `.vref/index.html` before handing off UI work.
+8. Review the generated `.vref/index.html` before handing off UI work.
+
+## Validation Fixes
+
+When `vref validate --output json` reports a missing screenshot, fix the
+manifest entry or add the asset under `.vref/screenshots/`, then validate again:
+
+```json
+{ "id": "home", "file": "screenshots/roku-720p/home.jpg" }
+```
 
 ## Safety Rules
 

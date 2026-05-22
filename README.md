@@ -102,6 +102,7 @@ Screenshot `file` paths are relative to `.vref/` and must stay inside that direc
 - [Visual Reference Guide](./docs/VREF.md)
 - [Plan](./docs/PLAN.md)
 - [Distribution](./docs/DISTRIBUTION.md)
+- [vref skill](./skills/vref/SKILL.md)
 - [Agent guide](./AGENTS.md)
 - [Security](./SECURITY.md)
 
