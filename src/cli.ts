@@ -4,7 +4,9 @@ import { pathToFileURL } from "node:url";
 import { Effect } from "effect";
 import { buildGallery, validateGallery } from "./build.js";
 import { describeCli } from "./describe.js";
-import { errorToJson, normalizeError, VrefError } from "./errors.js";
+import { normalizeError, VrefError } from "./errors.js";
+import { addScreenshot, decodeScreenshotJson } from "./manifest-edit.js";
+import { parseFields, renderJsonError, renderJsonResult, type OutputFormat } from "./output.js";
 import { serve } from "./serve.js";
 
 const DEFAULT_MANIFEST = ".vref/manifest.json";
@@ -13,17 +15,25 @@ const DEFAULT_SERVE_DIR = ".vref";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4173;
 
-type OutputFormat = "human" | "json";
-
 type ParsedArgs = {
   command: string;
+  fields: readonly string[];
   output: OutputFormat;
   flags: Map<string, string | true>;
   positionals: string[];
 };
 
-export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: string) {
-  const args = parseArgs(argv);
+type RunCliOptions = {
+  isInteractiveTerminal?: boolean;
+};
+
+export const runCli = Effect.fn("vref.cli")(function* (
+  argv: string[],
+  cwd: string,
+  options: RunCliOptions = {},
+) {
+  const args = parseArgs(argv, options.isInteractiveTerminal ?? true);
+  validateBooleanFlags(args, ["check", "dry-run", "help"]);
 
   if (getBoolean(args, "help")) {
     yield* Effect.sync(() => printHelp(args.command));
@@ -33,6 +43,7 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
   switch (args.command) {
     case "build": {
       if (getBoolean(args, "check") || getBoolean(args, "dry-run")) {
+        validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]);
         const result = yield* promiseBoundary(() =>
           validateGallery({
             cwd,
@@ -40,11 +51,18 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
           }),
         );
         yield* Effect.sync(() =>
-          print(args.output, result, `validated ${result.screenshotCount} references`),
+          print(args, result, `validated ${result.screenshotCount} references`),
         );
         return;
       }
 
+      validateFields(args, [
+        "manifestPath",
+        "outputPath",
+        "screenshotCount",
+        "groupCount",
+        "deviceCount",
+      ]);
       const result = yield* promiseBoundary(() =>
         buildGallery({
           cwd,
@@ -52,11 +70,12 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
           outputPath: getString(args, "out") ?? getString(args, "output-path") ?? DEFAULT_OUTPUT,
         }),
       );
-      yield* Effect.sync(() => print(args.output, result, `wrote ${result.outputPath}`));
+      yield* Effect.sync(() => print(args, result, `wrote ${result.outputPath}`));
       return;
     }
 
     case "validate": {
+      validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]);
       const result = yield* promiseBoundary(() =>
         validateGallery({
           cwd,
@@ -64,12 +83,13 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
         }),
       );
       yield* Effect.sync(() =>
-        print(args.output, result, `validated ${result.screenshotCount} references`),
+        print(args, result, `validated ${result.screenshotCount} references`),
       );
       return;
     }
 
     case "serve": {
+      validateFields(args, ["dir", "host", "port", "url"]);
       const port = yield* optionalPositiveInteger(args, "port");
       const result = yield* promiseBoundary(() =>
         serve({
@@ -81,7 +101,7 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
       );
       yield* Effect.sync(() => {
         if (args.output === "json") {
-          console.log(JSON.stringify({ ok: true, result }, null, 2));
+          console.log(renderJsonResult(result, args.fields));
         } else {
           console.log(`serving ${result.dir} at ${result.url}`);
           console.log("press Ctrl+C to stop");
@@ -91,10 +111,59 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
     }
 
     case "describe": {
+      validateFields(args, [
+        "name",
+        "package",
+        "version",
+        "defaults",
+        "output",
+        "automation",
+        "commands",
+        "manifest",
+      ]);
       const result = describeCli();
-      yield* Effect.sync(() =>
-        print(args.output, result, "vref: build, validate, serve, describe"),
+      yield* Effect.sync(() => print(args, result, "vref: build, validate, serve, describe"));
+      return;
+    }
+
+    case "manifest": {
+      const subcommand = args.positionals[0];
+      if (subcommand !== "add") {
+        return yield* Effect.fail(
+          new VrefError(
+            "VREF_UNKNOWN_COMMAND",
+            "Unknown manifest command. Use `vref manifest add`.",
+          ),
+        );
+      }
+
+      const rawJson = getString(args, "json");
+      if (rawJson === undefined) {
+        return yield* Effect.fail(
+          new VrefError("VREF_JSON_REQUIRED", "`vref manifest add` requires --json"),
+        );
+      }
+
+      validateFields(args, [
+        "assetExists",
+        "dryRun",
+        "manifestPath",
+        "screenshot",
+        "screenshotCount",
+      ]);
+      const screenshot = decodeScreenshotJson(rawJson);
+      const result = yield* promiseBoundary(() =>
+        addScreenshot({
+          cwd,
+          dryRun: getBoolean(args, "dry-run") || getBoolean(args, "check"),
+          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          screenshot,
+        }),
       );
+      const message = result.dryRun
+        ? `validated manifest add for ${result.screenshot.id}`
+        : `added manifest screenshot ${result.screenshot.id}`;
+      yield* Effect.sync(() => print(args, result, message));
       return;
     }
 
@@ -111,7 +180,7 @@ export const runCli = Effect.fn("vref.cli")(function* (argv: string[], cwd: stri
   }
 });
 
-function parseArgs(values: string[]): ParsedArgs {
+function parseArgs(values: string[], isInteractiveTerminal: boolean): ParsedArgs {
   const [commandValue, ...rest] = values;
   const command = commandValue ?? "help";
   const flags = new Map<string, string | true>();
@@ -145,9 +214,13 @@ function parseArgs(values: string[]): ParsedArgs {
   }
 
   const outputValue = flags.get("output");
-  const output = outputValue === "json" ? "json" : "human";
+  const output =
+    outputValue === "json" || (!isInteractiveTerminal && outputValue !== "human")
+      ? "json"
+      : "human";
+  const fields = parseFields(getStringFromFlags(flags, "fields"));
 
-  return { command, output, flags, positionals };
+  return { command, fields, output, flags, positionals };
 }
 
 function getString(args: ParsedArgs, key: string): string | undefined {
@@ -160,8 +233,51 @@ function getString(args: ParsedArgs, key: string): string | undefined {
   return undefined;
 }
 
+function getStringFromFlags(flags: Map<string, string | true>, key: string): string | undefined {
+  const value = flags.get(key);
+
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+
+  return undefined;
+}
+
 function getBoolean(args: ParsedArgs, key: string): boolean {
-  return args.flags.get(key) === true;
+  const value = args.flags.get(key);
+  return value === true || value === "true";
+}
+
+function validateBooleanFlags(args: ParsedArgs, keys: readonly string[]): void {
+  for (const key of keys) {
+    validateBooleanFlag(args, key);
+  }
+}
+
+function validateBooleanFlag(args: ParsedArgs, key: string): void {
+  const value = args.flags.get(key);
+  if (value === true || value === "true") {
+    return;
+  }
+
+  if (value === undefined || value === "false") {
+    return;
+  }
+
+  throw new VrefError(
+    "VREF_INVALID_BOOLEAN",
+    `--${key} must be passed without a value or with true/false`,
+  );
+}
+
+function validateFields(args: ParsedArgs, allowedFields: readonly string[]): void {
+  const unknownFields = args.fields.filter((field) => !allowedFields.includes(field));
+  if (unknownFields.length > 0) {
+    throw new VrefError(
+      "VREF_UNKNOWN_FIELD",
+      `Unknown --fields value: ${unknownFields.join(", ")}`,
+    );
+  }
 }
 
 function optionalPositiveInteger(
@@ -181,9 +297,9 @@ function optionalPositiveInteger(
   return Effect.fail(new VrefError("VREF_INVALID_NUMBER", `--${key} must be a positive integer`));
 }
 
-function print(output: OutputFormat, result: unknown, human: string): void {
-  if (output === "json") {
-    console.log(JSON.stringify({ ok: true, result }, null, 2));
+function print(args: ParsedArgs, result: unknown, human: string): void {
+  if (args.output === "json") {
+    console.log(renderJsonResult(result, args.fields));
   } else {
     console.log(human);
   }
@@ -194,7 +310,7 @@ function printHelp(command?: string): void {
     console.log(`vref build
 
 Usage:
-  vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--check] [--dry-run] [--output json]
+  vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--check] [--dry-run] [--output json] [--fields field[,field...]]
 `);
     return;
   }
@@ -203,7 +319,7 @@ Usage:
     console.log(`vref validate
 
 Usage:
-  vref validate [--manifest .vref/manifest.json] [--output json]
+  vref validate [--manifest .vref/manifest.json] [--output json] [--fields field[,field...]]
 `);
     return;
   }
@@ -212,7 +328,7 @@ Usage:
     console.log(`vref serve
 
 Usage:
-  vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json]
+  vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json] [--fields field[,field...]]
 `);
     return;
   }
@@ -221,7 +337,16 @@ Usage:
     console.log(`vref describe
 
 Usage:
-  vref describe --output json
+  vref describe --output json [--fields field[,field...]]
+`);
+    return;
+  }
+
+  if (command === "manifest") {
+    console.log(`vref manifest add
+
+Usage:
+  vref manifest add --json '{"id":"home",...}' [--manifest .vref/manifest.json] [--dry-run] [--output json] [--fields field[,field...]]
 `);
     return;
   }
@@ -232,6 +357,7 @@ Usage:
   vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--check] [--dry-run] [--output json]
   vref validate [--manifest .vref/manifest.json] [--output json]
   vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json]
+  vref manifest add --json '{"id":"home",...}' [--manifest .vref/manifest.json] [--dry-run] [--output json]
   vref describe --output json
 `);
 }
@@ -244,10 +370,11 @@ function promiseBoundary<A>(run: () => Promise<A>): Effect.Effect<A, VrefError> 
 }
 
 export function main(argv: string[], cwd: string): void {
-  void Effect.runPromise(runCli(argv, cwd)).catch((error: unknown) => {
-    const wantsJson = wantsJsonOutput(argv);
+  const isInteractiveTerminal = process.stdout.isTTY === true;
+  void Effect.runPromise(runCli(argv, cwd, { isInteractiveTerminal })).catch((error: unknown) => {
+    const wantsJson = wantsJsonOutput(argv, isInteractiveTerminal);
     if (wantsJson) {
-      console.error(JSON.stringify(errorToJson(error), null, 2));
+      console.error(renderJsonError(error));
     } else if (error instanceof Error) {
       console.error(error.message);
     } else {
@@ -261,17 +388,25 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   main(process.argv.slice(2), process.cwd());
 }
 
-function wantsJsonOutput(values: string[]): boolean {
+function wantsJsonOutput(values: string[], isInteractiveTerminal: boolean): boolean {
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === "--output=json") {
       return true;
     }
 
+    if (value === "--output=human") {
+      return false;
+    }
+
     if (value === "--output" && values[index + 1] === "json") {
       return true;
     }
+
+    if (value === "--output" && values[index + 1] === "human") {
+      return false;
+    }
   }
 
-  return false;
+  return !isInteractiveTerminal;
 }

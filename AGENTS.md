@@ -26,6 +26,7 @@
 - `vref build`
 - `vref build --check --output json`
 - `vref serve`
+- `vref manifest add --json '{"id":"home",...}' --dry-run --output json`
 - `vref describe --output json`
 
 ## Repo-Specific Guidance
@@ -34,5 +35,6 @@
 - Keep `.vref/manifest.json` and `.vref/screenshots/*` safe for the owning repo's visibility before committing
 - Do not add visual diffing, PR comments, cross-repo aggregation, hosted services, or platform-specific capture without a new design pass
 - Use typed manifest parsing and structured CLI output; agents should prefer `--output json`
+- Use `--fields` to keep JSON responses small when only a few top-level result fields are needed
 - Prefer `vref validate --output json` or `vref build --check --output json` before any workflow that should not mutate files
 - Update docs and the vref skill when command behavior or screenshot safety rules change

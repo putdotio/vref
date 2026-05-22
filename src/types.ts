@@ -39,3 +39,11 @@ export type VrefValidateResult = {
   groupCount: number;
   deviceCount: number;
 };
+
+export type VrefManifestAddResult = {
+  assetExists: boolean;
+  dryRun: boolean;
+  manifestPath: string;
+  screenshot: VrefScreenshot;
+  screenshotCount: number;
+};

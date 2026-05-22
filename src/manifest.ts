@@ -32,6 +32,10 @@ export async function writeManifest(path: string, manifest: VrefManifest): Promi
   await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+export function screenshotFromJson(value: unknown, path: string): VrefScreenshot {
+  return screenshotFromUnknown(value, path);
+}
+
 function manifestFromUnknown(value: unknown, path: string): VrefManifest {
   const record = requireRecord(value, path);
   const version = requireNumber(record.version, `${path}:version`);

@@ -285,6 +285,209 @@ describe("vref", () => {
     expect(result.logs.join("\n")).toContain("vref serve");
     expect(result.logs.join("\n")).toContain("vref serve [--dir .vref]");
   });
+
+  it("defaults to json output for non-interactive command runs", async () => {
+    const root = await makeFixture();
+
+    const result = await captureConsoleLog(() =>
+      Effect.runPromise(runCli(["validate"], root, { isInteractiveTerminal: false })),
+    );
+
+    expect(result.logs.join("\n")).toContain('"ok": true');
+    expect(result.logs.join("\n")).toContain('"screenshotCount": 1');
+  });
+
+  it("selects top-level json fields for command output", async () => {
+    const root = await makeFixture();
+
+    const result = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(["validate", "--output", "json", "--fields", "screenshotCount"], root),
+      ),
+    );
+    const output = result.logs.join("\n");
+
+    expect(output).toContain('"result":');
+    expect(output).toContain('"screenshotCount": 1');
+    expect(output).not.toContain('"manifestPath"');
+  });
+
+  it("adds a manifest screenshot from raw json with dry-run support", async () => {
+    const root = await makeFixture();
+    const screenshot = {
+      id: "settings",
+      title: "Settings",
+      group: "Main pages",
+      platform: "Roku",
+      device: "Roku 720p",
+      viewport: { width: 1280, height: 720 },
+      file: "screenshots/roku-720p/settings.jpg",
+      capturedAt: "2026-05-19T13:34:00.000Z",
+      sizeBytes: 5,
+      tags: ["settings", "navigation"],
+      notes: ["Settings menu."],
+    };
+
+    const dryRun = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(
+          [
+            "manifest",
+            "add",
+            "--json",
+            JSON.stringify(screenshot),
+            "--dry-run",
+            "--output",
+            "json",
+          ],
+          root,
+        ),
+      ),
+    );
+    const afterDryRun = await readFile(join(root, ".vref/manifest.json"), "utf8");
+
+    expect(dryRun.logs.join("\n")).toContain('"dryRun": true');
+    expect(dryRun.logs.join("\n")).toContain('"assetExists": false');
+    expect(dryRun.logs.join("\n")).toContain('"result.screenshot.title"');
+    expect(afterDryRun).not.toContain('"settings"');
+
+    await writeFile(join(root, ".vref/screenshots/roku-720p/settings.jpg"), "image");
+    const write = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(["manifest", "add", "--json", JSON.stringify(screenshot), "--output", "json"], root),
+      ),
+    );
+    const afterWrite = await readFile(join(root, ".vref/manifest.json"), "utf8");
+
+    expect(write.logs.join("\n")).toContain('"dryRun": false');
+    expect(write.logs.join("\n")).toContain('"assetExists": true');
+    expect(afterWrite).toContain('"id": "settings"');
+  });
+
+  it("rejects unknown fields before mutating files", async () => {
+    const root = await makeFixture();
+    const screenshot = {
+      id: "settings",
+      title: "Settings",
+      group: "Main pages",
+      platform: "Roku",
+      device: "Roku 720p",
+      viewport: { width: 1280, height: 720 },
+      file: "screenshots/roku-720p/settings.jpg",
+      capturedAt: "2026-05-19T13:34:00.000Z",
+      sizeBytes: 5,
+      tags: ["settings"],
+      notes: ["Settings menu."],
+    };
+
+    await expect(
+      Effect.runPromise(runCli(["build", "--output", "json", "--fields", "nope"], root)),
+    ).rejects.toThrow("Unknown --fields value");
+
+    await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
+
+    await expect(
+      Effect.runPromise(
+        runCli(["manifest", "add", "--json", JSON.stringify(screenshot), "--fields", "nope"], root),
+      ),
+    ).rejects.toThrow("Unknown --fields value");
+
+    const manifest = await readFile(join(root, ".vref/manifest.json"), "utf8");
+    expect(manifest).not.toContain('"settings"');
+  });
+
+  it("treats explicit true as a boolean dry-run value", async () => {
+    const root = await makeFixture();
+    const screenshot = {
+      id: "settings",
+      title: "Settings",
+      group: "Main pages",
+      platform: "Roku",
+      device: "Roku 720p",
+      viewport: { width: 1280, height: 720 },
+      file: "screenshots/roku-720p/settings.jpg",
+      capturedAt: "2026-05-19T13:34:00.000Z",
+      sizeBytes: 5,
+      tags: ["settings"],
+      notes: ["Settings menu."],
+    };
+
+    await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(
+          ["manifest", "add", "--json", JSON.stringify(screenshot), "--dry-run", "true"],
+          root,
+        ),
+      ),
+    );
+
+    const manifest = await readFile(join(root, ".vref/manifest.json"), "utf8");
+    expect(manifest).not.toContain('"settings"');
+  });
+
+  it("rejects invalid boolean safety flag values before mutating files", async () => {
+    const root = await makeFixture();
+    const screenshot = {
+      id: "settings",
+      title: "Settings",
+      group: "Main pages",
+      platform: "Roku",
+      device: "Roku 720p",
+      viewport: { width: 1280, height: 720 },
+      file: "screenshots/roku-720p/settings.jpg",
+      capturedAt: "2026-05-19T13:34:00.000Z",
+      sizeBytes: 5,
+      tags: ["settings"],
+      notes: ["Settings menu."],
+    };
+
+    await expect(
+      Effect.runPromise(
+        runCli(["manifest", "add", "--json", JSON.stringify(screenshot), "--dry-run", "yes"], root),
+      ),
+    ).rejects.toThrow("true/false");
+
+    const manifest = await readFile(join(root, ".vref/manifest.json"), "utf8");
+    expect(manifest).not.toContain('"settings"');
+
+    await expect(Effect.runPromise(runCli(["build", "--check", "yes"], root))).rejects.toThrow(
+      "true/false",
+    );
+
+    await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
+
+    await expect(
+      Effect.runPromise(runCli(["build", "--check", "true", "--dry-run", "yes"], root)),
+    ).rejects.toThrow("true/false");
+  });
+
+  it("rejects symlinked manifest writes", async () => {
+    const root = await makeFixture();
+    const outside = join(root, "outside-manifest.json");
+    await writeFile(outside, await readFile(join(root, ".vref/manifest.json"), "utf8"));
+    await unlink(join(root, ".vref/manifest.json"));
+    await symlink(outside, join(root, ".vref/manifest.json"));
+
+    const screenshot = {
+      id: "settings",
+      title: "Settings",
+      group: "Main pages",
+      platform: "Roku",
+      device: "Roku 720p",
+      viewport: { width: 1280, height: 720 },
+      file: "screenshots/roku-720p/settings.jpg",
+      capturedAt: "2026-05-19T13:34:00.000Z",
+      sizeBytes: 5,
+      tags: ["settings"],
+      notes: ["Settings menu."],
+    };
+
+    await expect(
+      Effect.runPromise(runCli(["manifest", "add", "--json", JSON.stringify(screenshot)], root)),
+    ).rejects.toThrow("symlinks");
+
+    await expect(readFile(outside, "utf8")).resolves.not.toContain('"settings"');
+  });
 });
 
 async function captureConsoleLog<Result>(

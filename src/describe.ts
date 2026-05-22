@@ -10,6 +10,30 @@ export function describeCli(): unknown {
       host: "127.0.0.1",
       port: 4173,
     },
+    output: {
+      defaultInteractive: "human",
+      defaultNonInteractive: "json",
+      supported: ["human", "json"],
+      fieldSelection: "top-level result fields with --fields",
+    },
+    automation: {
+      defaultNonInteractiveOutput: "json",
+      dryRunForMutations: true,
+      fieldSelection: true,
+      pathSandboxing: true,
+      rawJsonInput: true,
+      schemaIntrospection: true,
+      skillPath: "skills/vref/SKILL.md",
+      untrustedTextAnnotations: true,
+      untrustedTextPaths: [
+        "result.screenshot.title",
+        "result.screenshot.group",
+        "result.screenshot.platform",
+        "result.screenshot.device",
+        "result.screenshot.tags[]",
+        "result.screenshot.notes[]",
+      ],
+    },
     commands: {
       build: {
         description: "Validate a visual reference manifest and render a static gallery.",
@@ -28,6 +52,7 @@ export function describeCli(): unknown {
             description: "Validate without writing index.html.",
           },
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+          fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
         },
       },
       validate: {
@@ -36,6 +61,7 @@ export function describeCli(): unknown {
         options: {
           manifest: { type: "string", default: ".vref/manifest.json" },
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+          fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
         },
       },
       serve: {
@@ -46,6 +72,30 @@ export function describeCli(): unknown {
           host: { type: "string", default: "127.0.0.1" },
           port: { type: "number", default: 4173 },
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+          fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
+        },
+      },
+      manifest: {
+        add: {
+          description: "Append one screenshot manifest entry from raw JSON.",
+          mutates: [".vref/manifest.json"],
+          options: {
+            manifest: { type: "string", default: ".vref/manifest.json" },
+            json: {
+              flag: "--json",
+              type: "object",
+              schema: "manifest.screenshots[]",
+              required: true,
+            },
+            dryRun: {
+              type: "boolean",
+              flags: ["--dry-run", "--check"],
+              default: false,
+              description: "Validate and preview the manifest append without writing.",
+            },
+            outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+            fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
+          },
         },
       },
       describe: {
@@ -53,6 +103,7 @@ export function describeCli(): unknown {
         mutates: [],
         options: {
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+          fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
         },
       },
     },

@@ -68,6 +68,14 @@ Agents should inspect the command schema before automating:
 vref describe --output json
 ```
 
+When `vref` output is piped or captured in a non-interactive process, JSON is
+the default. Use `--fields` to keep automation responses small:
+
+```bash
+vref validate --fields screenshotCount,groupCount
+vref describe --fields commands,automation
+```
+
 ## Manifest
 
 `vref` reads `.vref/manifest.json` by default and writes `.vref/index.html`.
@@ -96,6 +104,15 @@ Screenshot `file` paths are relative to `.vref/` and must stay inside that direc
   ]
 }
 ```
+
+Append a screenshot entry from raw JSON without editing the manifest by hand:
+
+```bash
+vref manifest add --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","viewport":{"width":1280,"height":720},"file":"screenshots/roku-720p/settings.jpg","capturedAt":"2026-05-19T13:35:00.000Z","sizeBytes":39716,"tags":["settings"],"notes":["Settings page."]}' --dry-run --output json
+```
+
+Remove `--dry-run` after the preview looks correct. The command only edits
+manifest metadata; app repos still own screenshot capture and file updates.
 
 ## Docs
 
