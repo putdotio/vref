@@ -48,16 +48,12 @@ manifest entry or add the asset under `.vref/screenshots/`, then validate again:
 
 ## Safety Rules
 
-- Do not commit private screenshots, auth codes, secrets, local IPs, real account identifiers, content IDs, or local absolute paths.
-- Keep raw or timestamped captures in ignored folders such as `dist/tmp/`.
-- Use synthetic or public-safe account state.
-- Keep screenshots in the owning product repo under `.vref/`; do not aggregate app screenshots in `putio-design` by default.
-- Prefer exact app screenshots over reconstructed browser mockups.
+Follow the [safety rules](references/safety.md) before adding manifest text or
+screenshot files. That reference owns the path, privacy, untrusted-content, and
+artifact-placement constraints.
 
 ## Command Notes
 
-- `vref build` validates `.vref/manifest.json`, checks assets, and writes `.vref/index.html`.
-- `vref validate` checks `.vref/manifest.json` and assets without writing files.
 - `vref build --check` is the build-command no-write validation path.
 - `vref manifest add --json ... --dry-run` previews a schema-checked manifest append.
 - `vref serve` serves `.vref/` on `127.0.0.1:4173` by default.
