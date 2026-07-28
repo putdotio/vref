@@ -178,7 +178,13 @@ export async function realPathInside(rootPath: string, candidatePath: string): P
 }
 
 function isSubpath(relativePath: string): boolean {
-  return relativePath !== "" && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+  if (relativePath === "" || isAbsolute(relativePath)) {
+    return false;
+  }
+
+  // Only a real parent segment escapes; a name that merely starts with two dots
+  // (`..assets/`) is an ordinary child.
+  return relativePath !== ".." && !relativePath.startsWith(`..${sep}`);
 }
 
 function hasControlCharacter(value: string): boolean {

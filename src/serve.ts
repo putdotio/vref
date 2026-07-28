@@ -1,10 +1,11 @@
 import { createReadStream } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join, normalize, relative, sep } from "node:path";
+import { extname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { VrefError } from "./errors.js";
 import { readManifest } from "./manifest.js";
 import {
+  assertNoSymlinkInPath,
   realPathInside,
   resolveInsideCwd,
   resolveManifestAssetPath,
@@ -46,7 +47,7 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
   const escapingAssets = assets.filter((asset) => !isInside(serveDir, asset));
   const root = escapingAssets.length > 0 ? resolveInsideCwd(options.cwd, ".", "cwd") : serveDir;
   const indexPath = join(serveDir, "index.html");
-  const indexUrl = root === serveDir ? "/" : `/${toPosix(relative(root, indexPath))}`;
+  const indexUrl = root === serveDir ? "/" : `/${toUrlPath(relative(root, indexPath))}`;
 
   // Served paths come back canonicalised, so canonicalise what we compare them
   // against — otherwise every check fails wherever the tree sits behind a
@@ -152,9 +153,23 @@ async function manifestAssets(cwd: string, manifestPath: string): Promise<string
     return [];
   }
 
-  return manifest.screenshots.map((screenshot) =>
-    resolveManifestAssetPath(paths.cwd, paths.vrefDir, screenshot.file, "screenshot asset"),
-  );
+  const assets: string[] = [];
+
+  for (const screenshot of manifest.screenshots) {
+    const assetPath = resolveManifestAssetPath(
+      paths.cwd,
+      paths.vrefDir,
+      screenshot.file,
+      "screenshot asset",
+    );
+    // An unsafe path is not a tolerable manifest defect: without this, a
+    // manifest entry symlinked at, say, `.env` would put that file's canonical
+    // path in the allowlist and serve it. Refuse to start instead.
+    await assertNoSymlinkInPath(paths.cwd, assetPath, "screenshot asset");
+    assets.push(assetPath);
+  }
+
+  return assets;
 }
 
 async function realpathOrSelf(path: string): Promise<string> {
@@ -168,11 +183,21 @@ async function realpathOrSelf(path: string): Promise<string> {
 function isInside(root: string, candidate: string): boolean {
   const relativePath = relative(root, candidate);
 
-  return relativePath !== "" && !relativePath.startsWith("..") && !relativePath.startsWith(sep);
+  if (relativePath === "" || isAbsolute(relativePath)) {
+    return false;
+  }
+
+  // Only a real parent segment escapes; a name that merely starts with two dots
+  // (`..assets/`) is an ordinary child.
+  return relativePath !== ".." && !relativePath.startsWith(`..${sep}`);
 }
 
-function toPosix(value: string): string {
-  return sep === "/" ? value : value.replaceAll(sep, "/");
+/** Percent-encode each segment so path characters cannot become URL syntax. */
+function toUrlPath(value: string): string {
+  return value
+    .split(sep)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 export async function resolveServableFile(root: string, relativePath: string): Promise<string> {

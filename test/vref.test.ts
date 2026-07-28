@@ -303,6 +303,53 @@ describe("vref", () => {
     }
   });
 
+  it("refuses to serve when a manifest asset is a symlink", async () => {
+    const root = await makeFixture("../baselines/home.jpg");
+    await mkdir(join(root, "baselines"), { recursive: true });
+    await writeFile(join(root, "secret.env"), "TOKEN=secret");
+    await symlink(join(root, "secret.env"), join(root, "baselines/home.jpg"));
+
+    // Without this the symlink's canonical target lands in the allowlist and
+    // GET /secret.env serves it.
+    await expect(
+      serve({
+        cwd: root,
+        dir: ".vref",
+        host: "127.0.0.1",
+        manifestPath: ".vref/manifest.json",
+        port: 0,
+      }),
+    ).rejects.toThrow("symlinks");
+  });
+
+  it("serves directory names that merely begin with two dots", async () => {
+    const root = await makeFixture("../baselines/home.jpg");
+    await mkdir(join(root, "baselines"), { recursive: true });
+    await mkdir(join(root, ".vref/..assets"), { recursive: true });
+    await writeFile(join(root, "baselines/home.jpg"), "image");
+    await writeFile(join(root, ".vref/..assets/style.css"), "body{}");
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const server = await serve({
+      cwd: root,
+      dir: ".vref",
+      host: "127.0.0.1",
+      manifestPath: ".vref/manifest.json",
+      port: 0,
+    });
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/.vref/..assets/style.css`);
+      expect(response.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("keeps serving from the serve dir when every asset lives inside it", async () => {
     const root = await makeFixture();
     await buildGallery({
