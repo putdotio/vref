@@ -396,7 +396,9 @@ export function isDirectInvocation(moduleUrl: string, entryPath: string | undefi
   try {
     return moduleUrl === pathToFileURL(realpathSync(entryPath)).href;
   } catch {
-    // A non-existent argv[1] cannot be this module.
+    // Any resolution failure — missing, unreadable, a symlink loop — leaves the
+    // entry path unproven, and an unproven entry path is not this module. Fail
+    // closed rather than throwing during startup.
     return false;
   }
 }
