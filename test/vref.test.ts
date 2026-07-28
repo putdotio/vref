@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
-import { runCli } from "../src/cli.js";
+import { isDirectInvocation, runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";
 import { resolveServableFile } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
@@ -560,3 +561,38 @@ function makeManifest(file: string, tags: string[]): VrefManifest {
     ],
   };
 }
+
+describe("cli entry detection", () => {
+  it("treats a symlinked entry path as a direct invocation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
+    const real = join(root, "cli.mjs");
+    const link = join(root, "linked-cli.mjs");
+    await writeFile(real, "");
+    await symlink(real, link);
+
+    const moduleUrl = pathToFileURL(await realpath(real)).href;
+
+    // How pnpm's bin shim reaches the CLI: through node_modules/<pkg>, a
+    // symlink into node_modules/.pnpm. Comparing raw paths would miss this and
+    // the CLI would silently do nothing.
+    expect(isDirectInvocation(moduleUrl, link)).toBe(true);
+    expect(isDirectInvocation(moduleUrl, real)).toBe(true);
+  });
+
+  it("does not treat an unrelated entry path as a direct invocation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
+    const real = join(root, "cli.mjs");
+    const other = join(root, "other.mjs");
+    await writeFile(real, "");
+    await writeFile(other, "");
+
+    const moduleUrl = pathToFileURL(await realpath(real)).href;
+
+    expect(isDirectInvocation(moduleUrl, other)).toBe(false);
+    expect(isDirectInvocation(moduleUrl, undefined)).toBe(false);
+  });
+
+  it("does not throw when the entry path does not exist", () => {
+    expect(isDirectInvocation("file:///nowhere/cli.mjs", "/nonexistent/cli.mjs")).toBe(false);
+  });
+});

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { Effect } from "effect";
@@ -369,6 +370,33 @@ function promiseBoundary<A>(run: () => Promise<A>): Effect.Effect<A, VrefError> 
   });
 }
 
+/**
+ * Whether this module is the process entry point.
+ *
+ * Node canonicalises `import.meta.url` through symlinks but leaves
+ * `process.argv[1]` exactly as the caller wrote it, so comparing them directly
+ * fails whenever the CLI is reached through a symlink — which is the norm under
+ * pnpm, where `node_modules/<pkg>` links into `node_modules/.pnpm/…`. Depending
+ * on which path the generated bin shim used, the CLI would exit 0 having done
+ * no work at all, so a `vref build --check` step could pass while validating
+ * nothing. Canonicalise both sides.
+ */
+export function isDirectInvocation(moduleUrl: string, entryPath: string | undefined): boolean {
+  if (entryPath === undefined) {
+    return false;
+  }
+
+  let resolvedEntry = entryPath;
+  try {
+    resolvedEntry = realpathSync(entryPath);
+  } catch {
+    // A non-existent argv[1] cannot be this module; fall through to the plain
+    // comparison rather than throwing during startup.
+  }
+
+  return moduleUrl === pathToFileURL(resolvedEntry).href;
+}
+
 export function main(argv: string[], cwd: string): void {
   const isInteractiveTerminal = process.stdout.isTTY === true;
   void Effect.runPromise(runCli(argv, cwd, { isInteractiveTerminal })).catch((error: unknown) => {
@@ -384,7 +412,7 @@ export function main(argv: string[], cwd: string): void {
   });
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isDirectInvocation(import.meta.url, process.argv[1])) {
   main(process.argv.slice(2), process.cwd());
 }
 
