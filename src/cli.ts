@@ -386,15 +386,19 @@ export function isDirectInvocation(moduleUrl: string, entryPath: string | undefi
     return false;
   }
 
-  let resolvedEntry = entryPath;
-  try {
-    resolvedEntry = realpathSync(entryPath);
-  } catch {
-    // A non-existent argv[1] cannot be this module; fall through to the plain
-    // comparison rather than throwing during startup.
+  // Raw comparison first: under `node --preserve-symlinks-main` Node
+  // deliberately keeps `import.meta.url` on the symlink, so canonicalising only
+  // the entry path would make the two disagree and silently skip `main`.
+  if (moduleUrl === pathToFileURL(entryPath).href) {
+    return true;
   }
 
-  return moduleUrl === pathToFileURL(resolvedEntry).href;
+  try {
+    return moduleUrl === pathToFileURL(realpathSync(entryPath)).href;
+  } catch {
+    // A non-existent argv[1] cannot be this module.
+    return false;
+  }
 }
 
 export function main(argv: string[], cwd: string): void {

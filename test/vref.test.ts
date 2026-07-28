@@ -579,6 +579,20 @@ describe("cli entry detection", () => {
     expect(isDirectInvocation(moduleUrl, real)).toBe(true);
   });
 
+  it("still detects direct invocation when node keeps the main symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
+    const real = join(root, "cli.mjs");
+    const link = join(root, "linked-cli.mjs");
+    await writeFile(real, "");
+    await symlink(real, link);
+
+    // `node --preserve-symlinks-main` leaves import.meta.url on the symlink, so
+    // canonicalising only the entry path would make the two disagree.
+    const moduleUrl = pathToFileURL(link).href;
+
+    expect(isDirectInvocation(moduleUrl, link)).toBe(true);
+  });
+
   it("does not treat an unrelated entry path as a direct invocation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
     const real = join(root, "cli.mjs");
