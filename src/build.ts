@@ -1,9 +1,14 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { VrefError } from "./errors.js";
 import { readManifest } from "./manifest.js";
-import { assertNoSymlinkInPath, resolveInsideCwd, workspacePaths } from "./path-safety.js";
-import { renderGallery } from "./render.js";
+import {
+  assertNoSymlinkInPath,
+  resolveInsideCwd,
+  resolveManifestAssetPath,
+  workspacePaths,
+} from "./path-safety.js";
+import { assetHrefs, renderGallery } from "./render.js";
 import type { VrefBuildResult, VrefValidateResult } from "./types.js";
 
 export type BuildGalleryOptions = {
@@ -24,7 +29,20 @@ export async function buildGallery(options: BuildGalleryOptions): Promise<VrefBu
   await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
   await mkdir(dirname(outputPath), { recursive: true });
   await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
-  await writeFile(outputPath, renderGallery(manifest, { manifestLabel: options.manifestPath }));
+  await writeFile(
+    outputPath,
+    renderGallery(manifest, {
+      manifestLabel: options.manifestPath,
+      // Assets may sit outside the manifest directory, and the gallery may be
+      // written somewhere other than beside the manifest, so hrefs are relative
+      // to wherever index.html actually lands.
+      hrefs: assetHrefs(manifest, {
+        cwd: paths.cwd,
+        outputDir: dirname(outputPath),
+        vrefDir: paths.vrefDir,
+      }),
+    }),
+  );
 
   return {
     manifestPath: validation.manifestPath,
@@ -43,8 +61,13 @@ export async function validateGallery(options: {
   const manifest = await readManifest(paths.manifestPath);
 
   for (const screenshot of manifest.screenshots) {
-    const assetPath = join(paths.vrefDir, screenshot.file);
-    await assertNoSymlinkInPath(paths.vrefDir, assetPath, "screenshot asset");
+    const assetPath = resolveManifestAssetPath(
+      paths.cwd,
+      paths.vrefDir,
+      screenshot.file,
+      "screenshot asset",
+    );
+    await assertNoSymlinkInPath(paths.cwd, assetPath, "screenshot asset");
     try {
       const assetStats = await stat(assetPath);
       if (!assetStats.isFile()) {

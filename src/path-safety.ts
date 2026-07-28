@@ -70,14 +70,41 @@ export function safeManifestAssetPath(filePath: string, label: string): string {
 
   const normalized = filePath.replaceAll("\\", "/");
   const segments = normalized.split("/");
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+  if (segments.some((segment) => segment === "" || segment === ".")) {
     throw new VrefError(
       "VREF_UNSAFE_ASSET_PATH",
-      `${label} must not contain empty or traversal segments`,
+      `${label} must not contain empty or "." segments`,
     );
   }
 
   return normalized;
+}
+
+/**
+ * Resolve a manifest `file` entry against the manifest's own directory, then
+ * require the result to stay inside the working tree.
+ *
+ * `..` is permitted so a repo can reference screenshots it already keeps
+ * elsewhere — test baselines, for instance — instead of duplicating them under
+ * `.vref/`. The working tree remains a hard boundary.
+ */
+export function resolveManifestAssetPath(
+  cwd: string,
+  vrefDir: string,
+  filePath: string,
+  label: string,
+): string {
+  const resolved = resolve(vrefDir, filePath);
+  const relativePath = relative(resolve(cwd), resolved);
+
+  if (isSubpath(relativePath)) {
+    return resolved;
+  }
+
+  throw new VrefError(
+    "VREF_ASSET_OUTSIDE_CWD",
+    `${label} must stay inside the current working tree: ${filePath}`,
+  );
 }
 
 export function assertSupportedImage(filePath: string): void {

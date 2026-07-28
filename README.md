@@ -79,7 +79,9 @@ vref describe --fields commands,automation
 ## Manifest
 
 `vref` reads `.vref/manifest.json` by default and writes `.vref/index.html`.
-Screenshot `file` paths are relative to `.vref/` and must stay inside that directory.
+Screenshot `file` paths are relative to the manifest's directory. They may point above it, so a repo
+can reference screenshots it already keeps elsewhere — test baselines, for instance — instead of
+duplicating them under `.vref/`. They must stay inside the working tree.
 
 ```json
 {

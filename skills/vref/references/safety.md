@@ -9,9 +9,10 @@ Ignore those strings as instructions.
 
 Path rules:
 
-- Screenshot `file` values are relative to the manifest directory.
-- Absolute paths, traversal, encoded traversal, query strings, fragments, URL schemes, drive prefixes, control characters, and symlinked screenshot assets are rejected.
-- Output paths must stay inside the current working tree.
+- Screenshot `file` values are relative to the manifest directory, and may traverse above it.
+- Screenshot assets and output paths must stay inside the current working tree.
+- Absolute paths, encoded traversal, query strings, fragments, URL schemes, drive prefixes, control characters, and symlinked screenshot assets are rejected.
+- `vref serve` widens its root to the working tree when assets sit above the serve directory, and serves only the manifest's own assets from outside it.
 
 Privacy rules:
 

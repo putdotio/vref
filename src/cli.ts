@@ -96,6 +96,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
           cwd,
           dir: getString(args, "dir") ?? DEFAULT_SERVE_DIR,
           host: getString(args, "host") ?? DEFAULT_HOST,
+          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
           port: port ?? DEFAULT_PORT,
         }),
       );

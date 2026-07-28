@@ -187,8 +187,9 @@ export function describeCli(): unknown {
       },
       pathRules: [
         "screenshot file paths are relative to the manifest directory",
+        "screenshot file paths may traverse above the manifest directory but must stay inside the current working tree",
         "absolute paths are rejected",
-        "path traversal and encoded traversal are rejected",
+        "encoded traversal is rejected",
         "query strings and hash fragments are rejected",
         "control characters are rejected",
         "URL schemes and drive prefixes are rejected",

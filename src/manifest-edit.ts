@@ -1,8 +1,7 @@
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
 import { VrefError } from "./errors.js";
 import { readManifestDocument, screenshotFromJson, writeManifestDocument } from "./manifest.js";
-import { assertNoSymlinkInPath, workspacePaths } from "./path-safety.js";
+import { assertNoSymlinkInPath, resolveManifestAssetPath, workspacePaths } from "./path-safety.js";
 import type { VrefManifestAddResult, VrefScreenshot } from "./types.js";
 
 export type AddScreenshotOptions = {
@@ -24,8 +23,13 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
     );
   }
 
-  const assetPath = join(paths.vrefDir, options.screenshot.file);
-  const assetExists = await screenshotAssetExists(paths.vrefDir, assetPath);
+  const assetPath = resolveManifestAssetPath(
+    paths.cwd,
+    paths.vrefDir,
+    options.screenshot.file,
+    "screenshot asset",
+  );
+  const assetExists = await screenshotAssetExists(paths.cwd, assetPath);
   const nextScreenshots = [...readRawScreenshots(document), options.screenshot];
   const nextDocument = {
     ...document,

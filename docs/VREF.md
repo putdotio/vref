@@ -21,7 +21,20 @@ Default shape:
 ## Add A Screenshot Slot
 
 Add a screenshot entry to `.vref/manifest.json`.
-The `file` path is relative to `.vref/` and should point under `.vref/screenshots/`.
+The `file` path is relative to the manifest's directory and usually points under
+`.vref/screenshots/`.
+
+It may also point above the manifest directory, as long as it stays inside the working tree. Use
+that when a repo already keeps the images somewhere else and duplicating them would let the copies
+drift:
+
+```json
+{ "file": "../PutioUITests/__Snapshots__/ScreenshotWalkUITests/walk.dark-files.png" }
+```
+
+Gallery hrefs are written relative to wherever `index.html` lands, so both layouts open correctly
+from disk. `vref serve` widens its root to the working tree when assets sit above the serve
+directory, and serves only the manifest's own assets from outside it.
 
 ```json
 {

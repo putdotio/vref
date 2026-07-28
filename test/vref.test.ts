@@ -6,7 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
 import { runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";
-import { resolveServableFile } from "../src/serve.js";
+import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
 
 describe("vref", () => {
@@ -207,8 +207,40 @@ describe("vref", () => {
     ).rejects.toThrow("serve root");
   });
 
-  it("rejects manifest asset paths that escape the vref directory", async () => {
-    const root = await makeFixture("../secret.jpg");
+  it("builds a gallery from assets above the manifest directory", async () => {
+    const root = await makeFixture("../baselines/home.jpg");
+    await mkdir(join(root, "baselines"), { recursive: true });
+    await writeFile(join(root, "baselines/home.jpg"), "image");
+
+    const result = await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const html = await readFile(join(root, ".vref/index.html"), "utf8");
+    expect(result.screenshotCount).toBe(1);
+    expect(html).toContain('src="../baselines/home.jpg"');
+  });
+
+  it("writes hrefs relative to the gallery output, not the manifest", async () => {
+    const root = await makeFixture("../baselines/home.jpg");
+    await mkdir(join(root, "baselines"), { recursive: true });
+    await mkdir(join(root, "public"), { recursive: true });
+    await writeFile(join(root, "baselines/home.jpg"), "image");
+
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: "public/index.html",
+    });
+
+    const html = await readFile(join(root, "public/index.html"), "utf8");
+    expect(html).toContain('src="../baselines/home.jpg"');
+  });
+
+  it("rejects manifest asset paths that escape the working tree", async () => {
+    const root = await makeFixture("../../secret.jpg");
 
     await expect(
       buildGallery({
@@ -216,7 +248,87 @@ describe("vref", () => {
         manifestPath: ".vref/manifest.json",
         outputPath: ".vref/index.html",
       }),
-    ).rejects.toThrow("traversal");
+    ).rejects.toThrow("working tree");
+  });
+
+  it("rejects symlinked assets above the manifest directory", async () => {
+    const root = await makeFixture("../baselines/home.jpg");
+    await mkdir(join(root, "elsewhere"), { recursive: true });
+    await writeFile(join(root, "elsewhere/home.jpg"), "image");
+    await symlink(join(root, "elsewhere"), join(root, "baselines"));
+
+    await expect(
+      buildGallery({
+        cwd: root,
+        manifestPath: ".vref/manifest.json",
+        outputPath: ".vref/index.html",
+      }),
+    ).rejects.toThrow("symlinks");
+  });
+
+  it("serves manifest assets above the serve dir but nothing else outside it", async () => {
+    const root = await makeFixture("../baselines/home.jpg");
+    await mkdir(join(root, "baselines"), { recursive: true });
+    await writeFile(join(root, "baselines/home.jpg"), "image");
+    await writeFile(join(root, "secret.txt"), "secret");
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const server = await serve({
+      cwd: root,
+      dir: ".vref",
+      host: "127.0.0.1",
+      manifestPath: ".vref/manifest.json",
+      port: 0,
+    });
+
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      expect(server.url).toBe(`${base}/.vref/index.html`);
+
+      // The bare root points visitors at the real index so relative hrefs resolve.
+      const redirect = await fetch(base, { redirect: "manual" });
+      expect(redirect.status).toBe(302);
+      expect(redirect.headers.get("location")).toBe("/.vref/index.html");
+
+      await expect(fetch(`${base}/.vref/index.html`).then((r) => r.status)).resolves.toBe(200);
+      await expect(fetch(`${base}/baselines/home.jpg`).then((r) => r.status)).resolves.toBe(200);
+      // Inside the working tree, but not the serve dir and not in the manifest.
+      await expect(fetch(`${base}/secret.txt`).then((r) => r.status)).resolves.toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps serving from the serve dir when every asset lives inside it", async () => {
+    const root = await makeFixture();
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const server = await serve({
+      cwd: root,
+      dir: ".vref",
+      host: "127.0.0.1",
+      manifestPath: ".vref/manifest.json",
+      port: 0,
+    });
+
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      expect(server.url).toBe(`${base}/`);
+      await expect(fetch(base).then((r) => r.status)).resolves.toBe(200);
+      await expect(
+        fetch(`${base}/screenshots/roku-720p/home.jpg`).then((r) => r.status),
+      ).resolves.toBe(200);
+    } finally {
+      await server.close();
+    }
   });
 
   it("rejects symlinked screenshot assets during build", async () => {

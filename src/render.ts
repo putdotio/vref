@@ -1,8 +1,11 @@
+import { relative, sep } from "node:path";
+import { resolveManifestAssetPath } from "./path-safety.js";
 import type { VrefManifest, VrefScreenshot } from "./types.js";
 
 type GalleryViewModel = {
   manifest: VrefManifest;
   manifestLabel: string;
+  hrefs: ReadonlyMap<string, string>;
   groups: string[];
   platforms: string[];
   devices: string[];
@@ -11,7 +14,43 @@ type GalleryViewModel = {
 
 export type RenderGalleryOptions = {
   manifestLabel?: string;
+  /** Screenshot id to gallery-relative href. Falls back to the manifest `file`. */
+  hrefs?: ReadonlyMap<string, string>;
 };
+
+export type AssetHrefOptions = {
+  cwd: string;
+  outputDir: string;
+  vrefDir: string;
+};
+
+/**
+ * Map each screenshot id to an href relative to the directory the gallery is
+ * written into. When the gallery sits beside the manifest and assets live under
+ * it — the default layout — this reproduces the manifest `file` value verbatim.
+ */
+export function assetHrefs(
+  manifest: VrefManifest,
+  options: AssetHrefOptions,
+): ReadonlyMap<string, string> {
+  const hrefs = new Map<string, string>();
+
+  for (const screenshot of manifest.screenshots) {
+    const assetPath = resolveManifestAssetPath(
+      options.cwd,
+      options.vrefDir,
+      screenshot.file,
+      "screenshot asset",
+    );
+    hrefs.set(screenshot.id, toPosix(relative(options.outputDir, assetPath)));
+  }
+
+  return hrefs;
+}
+
+function toPosix(value: string): string {
+  return sep === "/" ? value : value.replaceAll(sep, "/");
+}
 
 export function renderGallery(manifest: VrefManifest, options: RenderGalleryOptions = {}): string {
   const viewModel = makeViewModel(manifest, options);
@@ -28,6 +67,7 @@ function makeViewModel(manifest: VrefManifest, options: RenderGalleryOptions): G
   return {
     manifest,
     manifestLabel: options.manifestLabel ?? ".vref/manifest.json",
+    hrefs: options.hrefs ?? new Map(),
     groups: uniqueSorted(manifest.screenshots.map((screenshot) => screenshot.group)),
     platforms: uniqueSorted(manifest.screenshots.map((screenshot) => screenshot.platform)),
     devices: uniqueSorted(manifest.screenshots.map((screenshot) => screenshot.device)),
@@ -110,7 +150,9 @@ function renderFilterRow(label: string, group: string, labels: string[]): string
 
 function renderGalleryGrid(viewModel: GalleryViewModel): string {
   const { manifest } = viewModel;
-  const cards = manifest.screenshots.map(renderCard).join("\n    ");
+  const cards = manifest.screenshots
+    .map((screenshot) => renderCard(screenshot, viewModel.hrefs.get(screenshot.id)))
+    .join("\n    ");
   const referenceCount = manifest.screenshots.length;
   const referenceLabel = referenceCount === 1 ? "reference" : "references";
 
@@ -159,7 +201,7 @@ function repeatedSortedTags(screenshots: VrefScreenshot[]): string[] {
   );
 }
 
-function renderCard(screenshot: VrefScreenshot): string {
+function renderCard(screenshot: VrefScreenshot, href = screenshot.file): string {
   const tagList = screenshot.tags.map(slug).join(" ");
   const visibleTagsHtml =
     screenshot.tags.length > 1
@@ -171,8 +213,8 @@ function renderCard(screenshot: VrefScreenshot): string {
   const metadata = `${screenshot.viewport.width}x${screenshot.viewport.height} / ${formatBytes(screenshot.sizeBytes)}`;
   const platformSlug = slug(screenshot.platform);
 
-  return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformSlug)}" data-group="${escapeHtml(slug(screenshot.group))}" data-tags="${escapeHtml(tagList)}">
-      <img class="preview" src="${escapeHtml(screenshot.file)}" alt="" loading="lazy">
+  return `<a class="card" href="${escapeHtml(href)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformSlug)}" data-group="${escapeHtml(slug(screenshot.group))}" data-tags="${escapeHtml(tagList)}">
+      <img class="preview" src="${escapeHtml(href)}" alt="" loading="lazy">
       <div class="card-body">
         <div class="item-info">
           <div class="item-name">${escapeHtml(screenshot.title)}</div>

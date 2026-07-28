@@ -1,14 +1,21 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, relative, sep } from "node:path";
 import { VrefError } from "./errors.js";
-import { realPathInside, resolveInsideCwd } from "./path-safety.js";
+import { readManifest } from "./manifest.js";
+import {
+  realPathInside,
+  resolveInsideCwd,
+  resolveManifestAssetPath,
+  workspacePaths,
+} from "./path-safety.js";
 
 export type ServeOptions = {
   cwd: string;
   dir: string;
   host: string;
+  manifestPath: string;
   port: number;
 };
 
@@ -17,11 +24,13 @@ export type ServeResult = {
   host: string;
   port: number;
   url: string;
+  /** Stop listening. Not part of the CLI's JSON output. */
+  close: () => Promise<void>;
 };
 
 export async function serve(options: ServeOptions): Promise<ServeResult> {
-  const root = resolveInsideCwd(options.cwd, options.dir, "serve dir");
-  const rootStats = await stat(root);
+  const serveDir = resolveInsideCwd(options.cwd, options.dir, "serve dir");
+  const rootStats = await stat(serveDir);
 
   if (!rootStats.isDirectory()) {
     throw new VrefError(
@@ -29,6 +38,23 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       `serve dir is not a directory: ${options.dir}`,
     );
   }
+
+  // Assets may live outside the serve directory. When they do, serve from the
+  // working tree instead and allow exactly the manifest's assets through — a
+  // narrower surface than the serve directory itself, which is served wholesale.
+  const assets = await manifestAssets(options.cwd, options.manifestPath);
+  const escapingAssets = assets.filter((asset) => !isInside(serveDir, asset));
+  const root = escapingAssets.length > 0 ? resolveInsideCwd(options.cwd, ".", "cwd") : serveDir;
+  const indexPath = join(serveDir, "index.html");
+  const indexUrl = root === serveDir ? "/" : `/${toPosix(relative(root, indexPath))}`;
+
+  // Served paths come back canonicalised, so canonicalise what we compare them
+  // against — otherwise every check fails wherever the tree sits behind a
+  // symlink, as macOS temp directories do.
+  const realServeDir = await realpathOrSelf(serveDir);
+  const allowedAssets = new Set(
+    await Promise.all(escapingAssets.map((asset) => realpathOrSelf(asset))),
+  );
 
   const server = createServer(async (request, response) => {
     let decodedPath: string;
@@ -41,10 +67,24 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       return;
     }
 
+    // A gallery whose assets sit above the serve directory only resolves its
+    // relative hrefs from the real index URL, so send visitors there.
+    if (decodedPath === "/" && indexUrl !== "/") {
+      response.writeHead(302, { location: indexUrl });
+      response.end();
+      return;
+    }
+
     const relativePath = decodedPath === "/" ? "index.html" : decodedPath.slice(1);
 
     try {
       const filePath = await resolveServableFile(root, relativePath);
+      if (!isInside(realServeDir, filePath) && !allowedAssets.has(filePath)) {
+        response.writeHead(404);
+        response.end("Not found");
+        return;
+      }
+
       const fileStats = await stat(filePath);
       if (!fileStats.isFile()) {
         response.writeHead(404);
@@ -73,14 +113,66 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
     });
   });
 
-  const url = `http://${options.host}:${options.port}/`;
+  // Port 0 asks the OS to pick a free port; report what it actually bound.
+  const address = server.address();
+  const port = typeof address === "object" && address !== null ? address.port : options.port;
 
   return {
     dir: root,
     host: options.host,
-    port: options.port,
-    url,
+    port,
+    url: `http://${options.host}:${port}${indexUrl}`,
+    close: () =>
+      new Promise<void>((resolvePromise, rejectPromise) => {
+        server.close((error) => {
+          if (error) {
+            rejectPromise(error);
+            return;
+          }
+          resolvePromise();
+        });
+      }),
   };
+}
+
+async function manifestAssets(cwd: string, manifestPath: string): Promise<string[]> {
+  let paths: ReturnType<typeof workspacePaths>;
+  try {
+    paths = workspacePaths(cwd, manifestPath);
+  } catch {
+    return [];
+  }
+
+  let manifest: Awaited<ReturnType<typeof readManifest>>;
+  try {
+    manifest = await readManifest(paths.manifestPath);
+  } catch {
+    // `serve` is allowed to serve a plain directory; an absent or unreadable
+    // manifest is `build` and `validate`'s problem to report, not this one's.
+    return [];
+  }
+
+  return manifest.screenshots.map((screenshot) =>
+    resolveManifestAssetPath(paths.cwd, paths.vrefDir, screenshot.file, "screenshot asset"),
+  );
+}
+
+async function realpathOrSelf(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const relativePath = relative(root, candidate);
+
+  return relativePath !== "" && !relativePath.startsWith("..") && !relativePath.startsWith(sep);
+}
+
+function toPosix(value: string): string {
+  return sep === "/" ? value : value.replaceAll(sep, "/");
 }
 
 export async function resolveServableFile(root: string, relativePath: string): Promise<string> {
