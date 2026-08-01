@@ -1,6 +1,9 @@
 packages:
   - "."
 overrides:
-  vite: "npm:@voidzero-dev/vite-plus-core@0.2.2"
+  vite: "npm:@voidzero-dev/vite-plus-core@0.2.6"
+peerDependencyRules:
+  allowedVersions:
+    vite: "0.2.6"
 allowBuilds:
   msgpackr-extract: false
