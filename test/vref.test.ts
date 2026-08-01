@@ -31,6 +31,8 @@ describe("vref", () => {
     expect(html).toContain("padding: 10px 0 16px");
     expect(html).toContain("min-height: 24px");
     expect(html).toContain("minmax(min(100%, 340px), 1fr)");
+    expect(html).toContain('data-orientation="landscape"');
+    expect(html).toContain("object-fit: contain");
     expect(html).toContain("1 reference &middot; Updated May 19, 2026");
     expect(html).toContain(".footer code { color: var(--text-2); font: inherit; }");
     expect(html).toContain(
@@ -50,6 +52,67 @@ describe("vref", () => {
     expect(html).not.toContain("&rarr;");
     expect(html).not.toContain("item-icon");
     expect(html).not.toContain(">TV<");
+  });
+
+  it("derives portrait and square card layouts from viewport dimensions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    await writeFile(join(root, ".vref/screenshots/phone.png"), "image");
+    await writeFile(join(root, ".vref/screenshots/square.png"), "image");
+
+    const manifest: VrefManifest = {
+      version: 1,
+      title: "put.io mobile visual reference",
+      description: "Mobile screenshots.",
+      updatedAt: "2026-05-19T13:35:00.000Z",
+      screenshots: [
+        {
+          id: "phone",
+          title: "Phone",
+          group: "Screens",
+          platform: "iOS",
+          device: "iPhone",
+          viewport: { width: 1320, height: 2868 },
+          file: "screenshots/phone.png",
+          capturedAt: "2026-05-19T13:34:00.000Z",
+          sizeBytes: 5,
+          tags: ["phone"],
+          notes: ["Portrait screen."],
+        },
+        {
+          id: "square",
+          title: "Square",
+          group: "Components",
+          platform: "iOS",
+          device: "Component",
+          viewport: { width: 720, height: 720 },
+          file: "screenshots/square.png",
+          capturedAt: "2026-05-19T13:34:00.000Z",
+          sizeBytes: 5,
+          tags: ["component"],
+          notes: ["Square component."],
+        },
+      ],
+    };
+
+    await writeFile(join(root, ".vref/manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+
+    const html = await readFile(join(root, ".vref/index.html"), "utf8");
+    expect(html).toContain(
+      'data-title="Phone" data-platform="ios" data-group="screens" data-tags="phone" data-orientation="portrait"',
+    );
+    expect(html).toContain(
+      'data-title="Square" data-platform="ios" data-group="components" data-tags="component" data-orientation="square"',
+    );
+    expect(html).toContain('.card[data-orientation="portrait"] .preview { aspect-ratio: 3 / 4; }');
+    expect(html).toContain('.card[data-orientation="square"] .preview { aspect-ratio: 1; }');
+    expect(html).toContain("align-items: start");
   });
 
   it("keeps single tags filterable without rendering a card tag chip", async () => {
