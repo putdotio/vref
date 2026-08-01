@@ -33,10 +33,14 @@
     "check": "vp check .",
     "clean": "rm -rf coverage dist",
     "describe": "node ./dist/cli.mjs describe --output json",
+    "effect:prepare": "./scripts/prepare-effect-source.sh",
+    "hooks:install": "git config core.hooksPath .git-hooks",
     "pack:dry": "vp pack src/index.ts src/cli.ts --dts && npm pack --dry-run",
     "prepack": "vp pack src/index.ts src/cli.ts --dts",
+    "smoke": "node ./scripts/smoke.ts",
     "test": "vp test",
-    "verify": "vp check . && vp pack src/index.ts src/cli.ts --dts && vp test && npm pack --dry-run"
+    "typecheck": "tsc --noEmit --rootDir .",
+    "verify": "vp check . && vp run typecheck && vp pack src/index.ts src/cli.ts --dts && vp run smoke && vp test && npm pack --dry-run"
   },
   "dependencies": {
     "effect": "beta"

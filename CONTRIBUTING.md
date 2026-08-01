@@ -2,11 +2,16 @@
 
 ## Setup
 
-Use Node `>=24.14.0` and pnpm.
+Use Node `>=24.18.0` and pnpm.
 
 ```bash
 pnpm install
+pnpm run effect:prepare
+pnpm run hooks:install
 ```
+
+The Effect preparation command installs the exact dependency-matched upstream source under
+`.repos/effect`. The checked-in pre-push hook runs the full verification gate before each push.
 
 ## Run Locally
 
@@ -19,10 +24,10 @@ pnpm run build
 Run the local CLI against a repo that has `.vref/manifest.json`:
 
 ```bash
-node ./dist/cli.js validate --output json
-node ./dist/cli.js build --check --output json
-node ./dist/cli.js build
-node ./dist/cli.js serve
+node ./dist/cli.mjs validate --output json
+node ./dist/cli.mjs build --check --output json
+node ./dist/cli.mjs build
+node ./dist/cli.mjs serve
 ```
 
 ## Validation
@@ -37,7 +42,9 @@ For focused work:
 
 ```bash
 pnpm run check
+pnpm run typecheck
 pnpm run build
+pnpm run smoke
 pnpm run test
 pnpm run pack:dry
 ```
