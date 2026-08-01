@@ -1,5 +1,7 @@
 import type { VrefManifest, VrefScreenshot } from "./types.js";
 
+type ScreenshotOrientation = "landscape" | "portrait" | "square";
+
 type GalleryViewModel = {
   manifest: VrefManifest;
   manifestLabel: string;
@@ -170,8 +172,9 @@ function renderCard(screenshot: VrefScreenshot): string {
       : "";
   const metadata = `${screenshot.viewport.width}x${screenshot.viewport.height} / ${formatBytes(screenshot.sizeBytes)}`;
   const platformSlug = slug(screenshot.platform);
+  const orientation = screenshotOrientation(screenshot);
 
-  return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformSlug)}" data-group="${escapeHtml(slug(screenshot.group))}" data-tags="${escapeHtml(tagList)}">
+  return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformSlug)}" data-group="${escapeHtml(slug(screenshot.group))}" data-tags="${escapeHtml(tagList)}" data-orientation="${orientation}">
       <img class="preview" src="${escapeHtml(screenshot.file)}" alt="" loading="lazy">
       <div class="card-body">
         <div class="item-info">
@@ -295,7 +298,7 @@ ${renderFilterStateCss(viewModel)}
     margin-bottom: 16px;
     font-family: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; gap: 18px; }
   .card {
     display: block;
     text-decoration: none;
@@ -311,11 +314,13 @@ ${renderFilterStateCss(viewModel)}
     display: block;
     width: 100%;
     aspect-ratio: 16 / 9;
-    object-fit: cover;
+    object-fit: contain;
     background: #000;
     outline: 1px solid rgba(255,255,255,0.08);
     outline-offset: -1px;
   }
+  .card[data-orientation="portrait"] .preview { aspect-ratio: 3 / 4; }
+  .card[data-orientation="square"] .preview { aspect-ratio: 1; }
   .card-body { display: flex; align-items: flex-start; gap: 10px; padding: 14px; }
   .item-info { flex: 1; min-width: 0; }
   .item-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -520,6 +525,14 @@ function renderClientScript(): string {
 
 function renderPutioTitle(title: string): string {
   return escapeHtml(title).replace("put.io", "put<span>.</span>io");
+}
+
+function screenshotOrientation(screenshot: VrefScreenshot): ScreenshotOrientation {
+  if (screenshot.viewport.width === screenshot.viewport.height) {
+    return "square";
+  }
+
+  return screenshot.viewport.width > screenshot.viewport.height ? "landscape" : "portrait";
 }
 
 function filterInputId(group: string, value: string): string {

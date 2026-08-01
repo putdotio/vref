@@ -82,6 +82,10 @@ JSON output is the default when stdout is not a TTY. Use `--fields` with
 top-level result fields such as `screenshotCount`, `groupCount`, `commands`, or
 `automation` to keep agent context small.
 
+Gallery cards derive their orientation from each screenshot's `viewport` dimensions. Landscape
+references use a 16:9 preview frame, portrait references use 3:4, and square references use 1:1.
+Previews contain the complete image without cropping; open a card to inspect it at full size.
+
 ## Roku Migration Path
 
 `putio-roku` can replace its hand-written gallery script with `vref` while keeping the current `docs/visual/` location during migration:
