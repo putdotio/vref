@@ -40,7 +40,7 @@ repo's private `.agents/` folder as a distribution surface.
 
 - Configure npm Trusted Publishing for `putdotio/vref`, workflow `ci.yml`, and Environment `release`.
 - Configure the `release` Environment without deployment records or human approval unless maintainers intentionally want a manual publish gate.
-- Confirm `putio-release-bot` can write to protected `main` and `v*` tags.
+- Confirm `putio-releaser` can write to protected `main` and `v*` tags.
 - Run `pnpm run verify`.
 - Merge a `feat:` or `fix:` commit to `main`.
 - Confirm the GitHub Release, npm package, and release bump commit.
