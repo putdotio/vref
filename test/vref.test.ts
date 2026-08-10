@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -326,6 +326,56 @@ describe("vref", () => {
     );
 
     await expect(fetch(url)).rejects.toThrow();
+  });
+
+  it("does not wait for a stalled response when the server scope ends", async () => {
+    const root = await makeFixture();
+    await writeFile(
+      join(root, ".vref/screenshots/roku-720p/home.jpg"),
+      Buffer.alloc(8 * 1024 * 1024),
+    );
+    let socket: Socket | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const scopedServer = Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const result = yield* serve({
+              cwd: root,
+              dir: ".vref",
+              host: "127.0.0.1",
+              port: 0,
+            });
+            yield* Effect.tryPromise(
+              () =>
+                new Promise<void>((resolve, reject) => {
+                  socket = connect(result.port, result.host, () => {
+                    socket?.write(
+                      "GET /screenshots/roku-720p/home.jpg HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    );
+                  });
+                  socket.once("error", reject);
+                  socket.once("data", () => {
+                    socket?.pause();
+                    resolve();
+                  });
+                }),
+            );
+          }),
+        ),
+      );
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("server scope did not close")), 1_000);
+      });
+
+      await expect(Promise.race([scopedServer, deadline])).resolves.toBeUndefined();
+    } finally {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      socket?.destroy();
+    }
   });
 
   it("surfaces a typed error when the serve port is already in use", async () => {

@@ -142,10 +142,19 @@ function closeServer(server: Server): Effect.Effect<void> {
       return;
     }
 
+    let completed = false;
+    const complete = (): void => {
+      if (!completed) {
+        completed = true;
+        resume(Effect.void);
+      }
+    };
+
     try {
-      server.close(() => resume(Effect.void));
+      server.close(complete);
+      server.closeAllConnections();
     } catch {
-      resume(Effect.void);
+      complete();
     }
   });
 }
