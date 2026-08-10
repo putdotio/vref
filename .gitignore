@@ -3,5 +3,4 @@ dist/
 coverage/
 .claude/worktrees/
 .vref/index.html
-.repos/effect
 .DS_Store

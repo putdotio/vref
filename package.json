@@ -33,7 +33,6 @@
     "check": "vp check .",
     "clean": "rm -rf coverage dist",
     "describe": "node ./dist/cli.mjs describe --output json",
-    "effect:prepare": "./scripts/prepare-effect-source.sh",
     "hooks:install": "git config core.hooksPath .git-hooks",
     "pack:dry": "vp pack src/index.ts src/cli.ts --dts && npm pack --dry-run",
     "prepack": "vp pack src/index.ts src/cli.ts --dts",
