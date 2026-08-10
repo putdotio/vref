@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
-import { isDirectInvocation, runCli } from "../src/cli.js";
+import { isDirectInvocation, recoverCliProgram, runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";
 import { VrefError } from "../src/errors.js";
 import { resolveServableFile, serve } from "../src/serve.js";
@@ -521,6 +521,44 @@ describe("vref", () => {
     expect(error.code).toBe("VREF_UNKNOWN_FIELD");
   });
 
+  it("formats unexpected main-boundary defects as structured JSON", async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      const result = await captureConsoleError(() =>
+        Effect.runPromise(
+          recoverCliProgram(Effect.die(new Error("unexpected defect")), ["--output", "json"], true),
+        ),
+      );
+
+      expect(result.logs.join("\n")).toContain('"code": "VREF_UNEXPECTED_ERROR"');
+      expect(result.logs.join("\n")).toContain("unexpected defect");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it("preserves main-boundary interruption for NodeRuntime", async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      const exit = await Effect.runPromiseExit(
+        recoverCliProgram(Effect.interrupt, ["--output", "json"], true),
+      );
+
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        expect(Cause.hasInterrupts(exit.cause)).toBe(true);
+      }
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it("treats explicit true as a boolean dry-run value", async () => {
     const root = await makeFixture();
     const screenshot = {
@@ -629,6 +667,23 @@ async function captureConsoleLog<Result>(
     return { logs, result };
   } finally {
     console.log = originalLog;
+  }
+}
+
+async function captureConsoleError<Result>(
+  run: () => Promise<Result>,
+): Promise<{ logs: string[]; result: Result }> {
+  const originalError = console.error;
+  const logs: string[] = [];
+  console.error = (...values: unknown[]) => {
+    logs.push(values.map(String).join(" "));
+  };
+
+  try {
+    const result = await run();
+    return { logs, result };
+  } finally {
+    console.error = originalError;
   }
 }
 

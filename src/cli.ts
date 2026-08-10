@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { NodeRuntime } from "@effect/platform-node";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { realpathSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { buildGallery, validateGallery } from "./build.js";
 import { describeCli } from "./describe.js";
 import { normalizeError, VrefError } from "./errors.js";
@@ -425,20 +425,39 @@ export function isDirectInvocation(moduleUrl: string, entryPath: string | undefi
 
 export function main(argv: string[], cwd: string): void {
   const isInteractiveTerminal = process.stdout.isTTY === true;
-  const program = runCli(argv, cwd, { isInteractiveTerminal }).pipe(
-    Effect.catch((error) =>
-      Effect.sync(() => {
-        if (wantsJsonOutput(argv, isInteractiveTerminal)) {
-          console.error(renderJsonError(error));
-        } else {
-          console.error(error.message);
-        }
-        process.exitCode = 1;
-      }),
-    ),
+  const program = recoverCliProgram(
+    runCli(argv, cwd, { isInteractiveTerminal }),
+    argv,
+    isInteractiveTerminal,
   );
 
   NodeRuntime.runMain(program);
+}
+
+export function recoverCliProgram<A, E, R>(
+  program: Effect.Effect<A, E, R>,
+  argv: string[],
+  isInteractiveTerminal: boolean,
+): Effect.Effect<A | void, E, R> {
+  return program.pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterrupts(cause)) {
+        return Effect.failCause(cause);
+      }
+
+      return Effect.sync(() => {
+        const error = Cause.squash(cause);
+        if (wantsJsonOutput(argv, isInteractiveTerminal)) {
+          console.error(renderJsonError(error));
+        } else if (error instanceof Error) {
+          console.error(error.message);
+        } else {
+          console.error(String(error));
+        }
+        process.exitCode = 1;
+      });
+    }),
+  );
 }
 
 if (isDirectInvocation(import.meta.url, process.argv[1])) {
