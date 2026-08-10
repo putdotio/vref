@@ -7,7 +7,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
 import { isDirectInvocation, runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";
-import { resolveServableFile } from "../src/serve.js";
+import { VrefError } from "../src/errors.js";
+import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
 
 describe("vref", () => {
@@ -143,6 +144,19 @@ describe("vref", () => {
     await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
   });
 
+  it("rejects date-like strings that are not ISO date-times", async () => {
+    const root = await makeFixture();
+    const manifest = makeManifest("screenshots/roku-720p/home.jpg", ["home"]);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      `${JSON.stringify({ ...manifest, updatedAt: "2026" }, null, 2)}\n`,
+    );
+
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).rejects.toThrow("ISO date-time");
+  });
+
   it("renders tag filter buttons only for tags used by multiple screenshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vref-"));
     await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
@@ -269,6 +283,27 @@ describe("vref", () => {
     await expect(
       resolveServableFile(join(root, ".vref"), "screenshots/roku-720p/leak.txt"),
     ).rejects.toThrow("serve root");
+  });
+
+  it("closes the HTTP server when its Effect scope ends", async () => {
+    const root = await makeFixture();
+    let url = "";
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: 0 });
+          url = result.url;
+          const response = yield* Effect.tryPromise(() =>
+            fetch(`${result.url}screenshots/roku-720p/home.jpg`),
+          );
+          expect(response.status).toBe(200);
+          expect(yield* Effect.tryPromise(() => response.text())).toBe("image");
+        }),
+      ),
+    );
+
+    await expect(fetch(url)).rejects.toThrow();
   });
 
   it("rejects manifest asset paths that escape the vref directory", async () => {
@@ -473,6 +508,17 @@ describe("vref", () => {
 
     const manifest = await readFile(join(root, ".vref/manifest.json"), "utf8");
     expect(manifest).not.toContain('"settings"');
+  });
+
+  it("keeps synchronous argument failures in the typed Effect error channel", async () => {
+    const root = await makeFixture();
+
+    const error = await Effect.runPromise(
+      Effect.flip(runCli(["build", "--output", "json", "--fields", "nope"], root)),
+    );
+
+    expect(error).toBeInstanceOf(VrefError);
+    expect(error.code).toBe("VREF_UNKNOWN_FIELD");
   });
 
   it("treats explicit true as a boolean dry-run value", async () => {

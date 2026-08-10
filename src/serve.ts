@@ -1,7 +1,9 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { Effect } from "effect";
 import { VrefError } from "./errors.js";
 import { realPathInside, resolveInsideCwd } from "./path-safety.js";
 
@@ -19,12 +21,27 @@ export type ServeResult = {
   url: string;
 };
 
-export async function serve(options: ServeOptions): Promise<ServeResult> {
-  const root = resolveInsideCwd(options.cwd, options.dir, "serve dir");
-  const rootStats = await stat(root);
+type RunningServer = {
+  result: ServeResult;
+  server: Server;
+};
+
+export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
+  const root = yield* Effect.try({
+    try: () => resolveInsideCwd(options.cwd, options.dir, "serve dir"),
+    catch: normalizeServeError,
+  });
+  const rootStats = yield* Effect.tryPromise({
+    try: () => stat(root),
+    catch: (cause) =>
+      new VrefError(
+        "VREF_SERVE_DIR_READ_FAILED",
+        `serve dir could not be read: ${messageFrom(cause)}`,
+      ),
+  });
 
   if (!rootStats.isDirectory()) {
-    throw new VrefError(
+    return yield* new VrefError(
       "VREF_SERVE_DIR_NOT_DIRECTORY",
       `serve dir is not a directory: ${options.dir}`,
     );
@@ -53,34 +70,92 @@ export async function serve(options: ServeOptions): Promise<ServeResult> {
       }
 
       response.writeHead(200, { "content-type": contentType(filePath) });
-      createReadStream(filePath).pipe(response);
+      await pipeline(createReadStream(filePath), response);
     } catch (error) {
       if (error instanceof VrefError && error.code === "VREF_BAD_SERVE_PATH") {
         response.writeHead(400);
         response.end("Bad request");
         return;
       }
-      response.writeHead(404);
-      response.end("Not found");
+      if (response.headersSent) {
+        response.destroy();
+      } else {
+        response.writeHead(404);
+        response.end("Not found");
+      }
     }
   });
 
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    server.once("error", rejectPromise);
-    server.listen(options.port, options.host, () => {
-      server.off("error", rejectPromise);
-      resolvePromise();
-    });
+  const running = yield* Effect.acquireRelease(listen(server, root, options), ({ server }) =>
+    closeServer(server),
+  );
+
+  return running.result;
+});
+
+const listen = Effect.fn("vref.serve.listen")(
+  (server: Server, root: string, options: ServeOptions) =>
+    Effect.callback<RunningServer, VrefError>((resume) => {
+      const onError = (cause: Error): void => {
+        tryCloseServer(server);
+        resume(
+          Effect.fail(
+            new VrefError("VREF_SERVE_LISTEN_FAILED", `server could not listen: ${cause.message}`),
+          ),
+        );
+      };
+
+      server.once("error", onError);
+      server.listen(options.port, options.host, () => {
+        server.off("error", onError);
+        const address = server.address();
+        if (typeof address !== "object" || address === null) {
+          server.close();
+          resume(
+            Effect.fail(
+              new VrefError("VREF_SERVE_LISTEN_FAILED", "server did not expose a TCP address"),
+            ),
+          );
+          return;
+        }
+
+        const result = {
+          dir: root,
+          host: options.host,
+          port: address.port,
+          url: `http://${options.host}:${address.port}/`,
+        };
+        resume(Effect.succeed({ result, server }));
+      });
+
+      return Effect.sync(() => {
+        server.off("error", onError);
+        tryCloseServer(server);
+      });
+    }),
+);
+
+function closeServer(server: Server): Effect.Effect<void> {
+  return Effect.callback<void>((resume) => {
+    if (!server.listening) {
+      resume(Effect.void);
+      return;
+    }
+
+    try {
+      server.close(() => resume(Effect.void));
+    } catch {
+      resume(Effect.void);
+    }
   });
+}
 
-  const url = `http://${options.host}:${options.port}/`;
-
-  return {
-    dir: root,
-    host: options.host,
-    port: options.port,
-    url,
-  };
+function tryCloseServer(server: Server): void {
+  try {
+    server.close();
+  } catch {
+    return;
+  }
 }
 
 export async function resolveServableFile(root: string, relativePath: string): Promise<string> {
@@ -120,4 +195,14 @@ function contentType(filePath: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+function normalizeServeError(error: unknown): VrefError {
+  return error instanceof VrefError
+    ? error
+    : new VrefError("VREF_SERVE_START_FAILED", messageFrom(error));
+}
+
+function messageFrom(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

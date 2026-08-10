@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Predicate } from "effect";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(repoRoot, "dist/cli.mjs");
@@ -108,12 +109,8 @@ function parseRecord(source: string, label: string): Record<string, unknown> {
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  assert.ok(isRecord(value), `${label} is invalid`);
+  assert.ok(Predicate.isObject(value), `${label} is invalid`);
   return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function failureMessage(check: string, result: SpawnSyncReturns<string>): string {
