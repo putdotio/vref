@@ -1,10 +1,11 @@
-export class VrefError extends Error {
-  readonly code: string;
+import { Schema } from "effect";
 
+export class VrefError extends Schema.TaggedError<VrefError>()("VrefError", {
+  code: Schema.String,
+  message: Schema.String,
+}) {
   constructor(code: string, message: string) {
-    super(message);
-    this.name = "VrefError";
-    this.code = code;
+    super({ code, message });
   }
 }
 

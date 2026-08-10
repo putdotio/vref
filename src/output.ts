@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { VrefError, errorToJson } from "./errors.js";
 
 export type OutputFormat = "human" | "json";
@@ -66,7 +67,7 @@ function selectTopLevelFields(value: unknown, fields: readonly string[]): unknow
     return value;
   }
 
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return value;
   }
 
@@ -105,7 +106,7 @@ function collectUntrustedTextPaths(value: unknown, path: string, paths: string[]
     return;
   }
 
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return;
   }
 
@@ -128,10 +129,6 @@ function isUntrustedTextPath(path: string): boolean {
     path.includes(".notes[") ||
     path.includes(".tags[")
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function hasControlCharacter(value: string): boolean {

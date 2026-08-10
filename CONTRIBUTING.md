@@ -6,12 +6,10 @@ Use Node `>=24.18.0` and pnpm.
 
 ```bash
 pnpm install
-pnpm run effect:prepare
 pnpm run hooks:install
 ```
 
-The Effect preparation command installs the exact dependency-matched upstream source under
-`.repos/effect`. The checked-in pre-push hook runs the full verification gate before each push.
+The checked-in pre-push hook runs the full verification gate before each push.
 
 ## Run Locally
 

@@ -1,7 +1,50 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { DateTime, Option, Predicate, Schema } from "effect";
 import { VrefError } from "./errors.js";
 import { assertSupportedImage, safeManifestAssetPath } from "./path-safety.js";
-import type { VrefManifest, VrefScreenshot, VrefViewport } from "./types.js";
+import type { VrefManifest, VrefScreenshot } from "./types.js";
+
+const Identifier = Schema.NonEmptyString.check(
+  Schema.isPattern(/^[a-z0-9][a-z0-9._-]*$/u, {
+    expected: "lowercase letters, numbers, dots, underscores, or hyphens",
+  }),
+);
+const NonBlankString = Schema.String.check(
+  Schema.makeFilter((value) => value.trim().length > 0, {
+    expected: "a non-empty string",
+  }),
+);
+const PositiveFinite = Schema.Finite.check(Schema.isGreaterThan(0));
+const DateString = NonBlankString.check(
+  Schema.makeFilter((value) => Option.isSome(DateTime.make(value)), { expected: "a date string" }),
+);
+const VrefViewportSchema = Schema.Struct({
+  width: PositiveFinite,
+  height: PositiveFinite,
+});
+const VrefScreenshotSchema = Schema.Struct({
+  id: Identifier,
+  title: NonBlankString,
+  group: NonBlankString,
+  platform: NonBlankString,
+  device: NonBlankString,
+  viewport: VrefViewportSchema,
+  file: NonBlankString,
+  capturedAt: DateString,
+  sizeBytes: PositiveFinite,
+  tags: Schema.Array(Identifier),
+  notes: Schema.Array(NonBlankString),
+});
+const VrefManifestSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  title: NonBlankString,
+  description: NonBlankString,
+  updatedAt: DateString,
+  screenshots: Schema.Array(VrefScreenshotSchema),
+});
+
+const decodeManifest = Schema.decodeUnknownSync(VrefManifestSchema);
+const decodeScreenshot = Schema.decodeUnknownSync(VrefScreenshotSchema);
 
 export async function readManifest(path: string): Promise<VrefManifest> {
   const { manifest } = await readManifestDocument(path);
@@ -55,15 +98,19 @@ export function screenshotFromJson(value: unknown, path: string): VrefScreenshot
 }
 
 function manifestFromUnknown(value: unknown, path: string): VrefManifest {
-  const record = requireRecord(value, path);
-  const version = requireNumber(record.version, `${path}:version`);
-
-  if (version !== 1) {
+  if (Predicate.isObject(value) && typeof value.version === "number" && value.version !== 1) {
     throw new VrefError("VREF_MANIFEST_UNSUPPORTED_VERSION", `${path}:version must be 1`);
   }
 
-  const screenshots = requireArray(record.screenshots, `${path}:screenshots`).map(
-    (screenshot, index) => screenshotFromUnknown(screenshot, `${path}:screenshots[${index}]`),
+  let decoded: typeof VrefManifestSchema.Type;
+  try {
+    decoded = decodeManifest(value, { errors: "all" });
+  } catch (error) {
+    throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path}: ${messageFrom(error)}`);
+  }
+
+  const screenshots = decoded.screenshots.map((screenshot, index) =>
+    validatedScreenshot(screenshot, `${path}:screenshots[${index}]`),
   );
   const ids = new Set<string>();
   for (const screenshot of screenshots) {
@@ -78,127 +125,52 @@ function manifestFromUnknown(value: unknown, path: string): VrefManifest {
 
   return {
     version: 1,
-    title: requireString(record.title, `${path}:title`),
-    description: requireString(record.description, `${path}:description`),
-    updatedAt: requireIsoDateString(record.updatedAt, `${path}:updatedAt`),
+    title: decoded.title,
+    description: decoded.description,
+    updatedAt: decoded.updatedAt,
     screenshots,
   };
 }
 
 function screenshotFromUnknown(value: unknown, path: string): VrefScreenshot {
-  const record = requireRecord(value, path);
-  const file = safeManifestAssetPath(requireString(record.file, `${path}:file`), `${path}:file`);
+  let decoded: typeof VrefScreenshotSchema.Type;
+  try {
+    decoded = decodeScreenshot(value, { errors: "all" });
+  } catch (error) {
+    throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path}: ${messageFrom(error)}`);
+  }
+
+  return validatedScreenshot(decoded, path);
+}
+
+function validatedScreenshot(
+  screenshot: typeof VrefScreenshotSchema.Type,
+  path: string,
+): VrefScreenshot {
+  const file = safeManifestAssetPath(screenshot.file, `${path}:file`);
   assertSupportedImage(file);
 
   return {
-    id: requireIdentifier(record.id, `${path}:id`),
-    title: requireString(record.title, `${path}:title`),
-    group: requireString(record.group, `${path}:group`),
-    platform: requireString(record.platform, `${path}:platform`),
-    device: requireString(record.device, `${path}:device`),
-    viewport: viewportFromUnknown(record.viewport, `${path}:viewport`),
+    id: screenshot.id,
+    title: screenshot.title,
+    group: screenshot.group,
+    platform: screenshot.platform,
+    device: screenshot.device,
+    viewport: { width: screenshot.viewport.width, height: screenshot.viewport.height },
     file,
-    capturedAt: requireIsoDateString(record.capturedAt, `${path}:capturedAt`),
-    sizeBytes: requirePositiveNumber(record.sizeBytes, `${path}:sizeBytes`),
-    tags: requireStringArray(record.tags, `${path}:tags`).map((tag, index) =>
-      requireTag(tag, `${path}:tags[${index}]`),
-    ),
-    notes: requireStringArray(record.notes, `${path}:notes`),
-  };
-}
-
-function viewportFromUnknown(value: unknown, path: string): VrefViewport {
-  const record = requireRecord(value, path);
-
-  return {
-    width: requirePositiveNumber(record.width, `${path}:width`),
-    height: requirePositiveNumber(record.height, `${path}:height`),
+    capturedAt: screenshot.capturedAt,
+    sizeBytes: screenshot.sizeBytes,
+    tags: [...screenshot.tags],
+    notes: [...screenshot.notes],
   };
 }
 
 function requireRecord(value: unknown, path: string): Record<string, unknown> {
-  if (isRecord(value)) {
+  if (Predicate.isObject(value)) {
     return value;
   }
 
   throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be an object`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requireArray(value: unknown, path: string): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be an array`);
-}
-
-function requireStringArray(value: unknown, path: string): string[] {
-  return requireArray(value, path).map((item, index) => requireString(item, `${path}[${index}]`));
-}
-
-function requireString(value: unknown, path: string): string {
-  if (typeof value === "string" && value.trim().length > 0) {
-    return value;
-  }
-
-  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be a non-empty string`);
-}
-
-function requireNumber(value: unknown, path: string): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be a finite number`);
-}
-
-function requirePositiveNumber(value: unknown, path: string): number {
-  const numberValue = requireNumber(value, path);
-
-  if (numberValue > 0) {
-    return numberValue;
-  }
-
-  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be greater than 0`);
-}
-
-function requireIsoDateString(value: unknown, path: string): string {
-  const stringValue = requireString(value, path);
-  const parsed = Date.parse(stringValue);
-
-  if (Number.isFinite(parsed)) {
-    return stringValue;
-  }
-
-  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be an ISO date string`);
-}
-
-function requireIdentifier(value: unknown, path: string): string {
-  const stringValue = requireString(value, path);
-
-  if (/^[a-z0-9][a-z0-9._-]*$/u.test(stringValue)) {
-    return stringValue;
-  }
-
-  throw new VrefError(
-    "VREF_MANIFEST_SCHEMA_INVALID",
-    `${path} must use lowercase letters, numbers, dots, underscores, or hyphens`,
-  );
-}
-
-function requireTag(value: string, path: string): string {
-  if (/^[a-z0-9][a-z0-9._-]*$/u.test(value)) {
-    return value;
-  }
-
-  throw new VrefError(
-    "VREF_MANIFEST_SCHEMA_INVALID",
-    `${path} must use lowercase letters, numbers, dots, underscores, or hyphens`,
-  );
 }
 
 function messageFrom(error: unknown): string {

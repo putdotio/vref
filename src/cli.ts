@@ -1,8 +1,9 @@
 #!/usr/bin/env node
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { realpathSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { buildGallery, validateGallery } from "./build.js";
 import { describeCli } from "./describe.js";
 import { normalizeError, VrefError } from "./errors.js";
@@ -33,8 +34,8 @@ export const runCli = Effect.fn("vref.cli")(function* (
   cwd: string,
   options: RunCliOptions = {},
 ) {
-  const args = parseArgs(argv, options.isInteractiveTerminal ?? true);
-  validateBooleanFlags(args, ["check", "dry-run", "help"]);
+  const args = yield* syncBoundary(() => parseArgs(argv, options.isInteractiveTerminal ?? true));
+  yield* syncBoundary(() => validateBooleanFlags(args, ["check", "dry-run", "help"]));
 
   if (getBoolean(args, "help")) {
     yield* Effect.sync(() => printHelp(args.command));
@@ -44,7 +45,9 @@ export const runCli = Effect.fn("vref.cli")(function* (
   switch (args.command) {
     case "build": {
       if (getBoolean(args, "check") || getBoolean(args, "dry-run")) {
-        validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]);
+        yield* syncBoundary(() =>
+          validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]),
+        );
         const result = yield* promiseBoundary(() =>
           validateGallery({
             cwd,
@@ -57,13 +60,15 @@ export const runCli = Effect.fn("vref.cli")(function* (
         return;
       }
 
-      validateFields(args, [
-        "manifestPath",
-        "outputPath",
-        "screenshotCount",
-        "groupCount",
-        "deviceCount",
-      ]);
+      yield* syncBoundary(() =>
+        validateFields(args, [
+          "manifestPath",
+          "outputPath",
+          "screenshotCount",
+          "groupCount",
+          "deviceCount",
+        ]),
+      );
       const result = yield* promiseBoundary(() =>
         buildGallery({
           cwd,
@@ -76,7 +81,9 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "validate": {
-      validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]);
+      yield* syncBoundary(() =>
+        validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]),
+      );
       const result = yield* promiseBoundary(() =>
         validateGallery({
           cwd,
@@ -90,38 +97,42 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "serve": {
-      validateFields(args, ["dir", "host", "port", "url"]);
+      yield* syncBoundary(() => validateFields(args, ["dir", "host", "port", "url"]));
       const port = yield* optionalPositiveInteger(args, "port");
-      const result = yield* promiseBoundary(() =>
-        serve({
-          cwd,
-          dir: getString(args, "dir") ?? DEFAULT_SERVE_DIR,
-          host: getString(args, "host") ?? DEFAULT_HOST,
-          port: port ?? DEFAULT_PORT,
+      return yield* Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({
+            cwd,
+            dir: getString(args, "dir") ?? DEFAULT_SERVE_DIR,
+            host: getString(args, "host") ?? DEFAULT_HOST,
+            port: port ?? DEFAULT_PORT,
+          });
+          yield* Effect.sync(() => {
+            if (args.output === "json") {
+              console.log(renderJsonResult(result, args.fields));
+            } else {
+              console.log(`serving ${result.dir} at ${result.url}`);
+              console.log("press Ctrl+C to stop");
+            }
+          });
+          return yield* Effect.never;
         }),
       );
-      yield* Effect.sync(() => {
-        if (args.output === "json") {
-          console.log(renderJsonResult(result, args.fields));
-        } else {
-          console.log(`serving ${result.dir} at ${result.url}`);
-          console.log("press Ctrl+C to stop");
-        }
-      });
-      return;
     }
 
     case "describe": {
-      validateFields(args, [
-        "name",
-        "package",
-        "version",
-        "defaults",
-        "output",
-        "automation",
-        "commands",
-        "manifest",
-      ]);
+      yield* syncBoundary(() =>
+        validateFields(args, [
+          "name",
+          "package",
+          "version",
+          "defaults",
+          "output",
+          "automation",
+          "commands",
+          "manifest",
+        ]),
+      );
       const result = describeCli();
       yield* Effect.sync(() => print(args, result, "vref: build, validate, serve, describe"));
       return;
@@ -145,14 +156,16 @@ export const runCli = Effect.fn("vref.cli")(function* (
         );
       }
 
-      validateFields(args, [
-        "assetExists",
-        "dryRun",
-        "manifestPath",
-        "screenshot",
-        "screenshotCount",
-      ]);
-      const screenshot = decodeScreenshotJson(rawJson);
+      yield* syncBoundary(() =>
+        validateFields(args, [
+          "assetExists",
+          "dryRun",
+          "manifestPath",
+          "screenshot",
+          "screenshotCount",
+        ]),
+      );
+      const screenshot = yield* syncBoundary(() => decodeScreenshotJson(rawJson));
       const result = yield* promiseBoundary(() =>
         addScreenshot({
           cwd,
@@ -370,6 +383,13 @@ function promiseBoundary<A>(run: () => Promise<A>): Effect.Effect<A, VrefError> 
   });
 }
 
+function syncBoundary<A>(run: () => A): Effect.Effect<A, VrefError> {
+  return Effect.try({
+    try: run,
+    catch: normalizeError,
+  });
+}
+
 /**
  * Whether this module is the process entry point.
  *
@@ -405,17 +425,39 @@ export function isDirectInvocation(moduleUrl: string, entryPath: string | undefi
 
 export function main(argv: string[], cwd: string): void {
   const isInteractiveTerminal = process.stdout.isTTY === true;
-  void Effect.runPromise(runCli(argv, cwd, { isInteractiveTerminal })).catch((error: unknown) => {
-    const wantsJson = wantsJsonOutput(argv, isInteractiveTerminal);
-    if (wantsJson) {
-      console.error(renderJsonError(error));
-    } else if (error instanceof Error) {
-      console.error(error.message);
-    } else {
-      console.error(String(error));
-    }
-    process.exitCode = 1;
-  });
+  const program = recoverCliProgram(
+    runCli(argv, cwd, { isInteractiveTerminal }),
+    argv,
+    isInteractiveTerminal,
+  );
+
+  NodeRuntime.runMain(program);
+}
+
+export function recoverCliProgram<A, E, R>(
+  program: Effect.Effect<A, E, R>,
+  argv: string[],
+  isInteractiveTerminal: boolean,
+): Effect.Effect<A | void, E, R> {
+  return program.pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) {
+        return Effect.failCause(cause);
+      }
+
+      return Effect.sync(() => {
+        const error = Cause.squash(cause);
+        if (wantsJsonOutput(argv, isInteractiveTerminal)) {
+          console.error(renderJsonError(error));
+        } else if (error instanceof Error) {
+          console.error(error.message);
+        } else {
+          console.error(String(error));
+        }
+        process.exitCode = 1;
+      });
+    }),
+  );
 }
 
 if (isDirectInvocation(import.meta.url, process.argv[1])) {

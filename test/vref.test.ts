@@ -1,13 +1,15 @@
 import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
-import { isDirectInvocation, runCli } from "../src/cli.js";
+import { isDirectInvocation, recoverCliProgram, runCli } from "../src/cli.js";
 import { describeCli } from "../src/describe.js";
-import { resolveServableFile } from "../src/serve.js";
+import { VrefError } from "../src/errors.js";
+import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
 
 describe("vref", () => {
@@ -143,6 +145,40 @@ describe("vref", () => {
     await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
   });
 
+  it("preserves date-only and offset-less manifest timestamps", async () => {
+    const root = await makeFixture();
+    const manifest = makeManifest("screenshots/roku-720p/home.jpg", ["home"]);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      `${JSON.stringify(
+        {
+          ...manifest,
+          updatedAt: "2026-05-19",
+          screenshots: [{ ...manifest.screenshots[0], capturedAt: "2026-05-19T13:35:00" }],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toEqual(expect.objectContaining({ screenshotCount: 1 }));
+  });
+
+  it("rejects invalid manifest timestamps", async () => {
+    const root = await makeFixture();
+    const manifest = makeManifest("screenshots/roku-720p/home.jpg", ["home"]);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      `${JSON.stringify({ ...manifest, updatedAt: "not-a-date" }, null, 2)}\n`,
+    );
+
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).rejects.toThrow("date string");
+  });
+
   it("renders tag filter buttons only for tags used by multiple screenshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vref-"));
     await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
@@ -269,6 +305,100 @@ describe("vref", () => {
     await expect(
       resolveServableFile(join(root, ".vref"), "screenshots/roku-720p/leak.txt"),
     ).rejects.toThrow("serve root");
+  });
+
+  it("closes the HTTP server when its Effect scope ends", async () => {
+    const root = await makeFixture();
+    let url = "";
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: 0 });
+          url = result.url;
+          const response = yield* Effect.tryPromise(() =>
+            fetch(`${result.url}screenshots/roku-720p/home.jpg`),
+          );
+          expect(response.status).toBe(200);
+          expect(yield* Effect.tryPromise(() => response.text())).toBe("image");
+        }),
+      ),
+    );
+
+    await expect(fetch(url)).rejects.toThrow();
+  });
+
+  it("does not wait for a stalled response when the server scope ends", async () => {
+    const root = await makeFixture();
+    await writeFile(
+      join(root, ".vref/screenshots/roku-720p/home.jpg"),
+      Buffer.alloc(8 * 1024 * 1024),
+    );
+    let socket: Socket | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const scopedServer = Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const result = yield* serve({
+              cwd: root,
+              dir: ".vref",
+              host: "127.0.0.1",
+              port: 0,
+            });
+            yield* Effect.tryPromise(
+              () =>
+                new Promise<void>((resolve, reject) => {
+                  socket = connect(result.port, result.host, () => {
+                    socket?.write(
+                      "GET /screenshots/roku-720p/home.jpg HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    );
+                  });
+                  socket.once("error", reject);
+                  socket.once("data", () => {
+                    socket?.pause();
+                    resolve();
+                  });
+                }),
+            );
+          }),
+        ),
+      );
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("server scope did not close")), 1_000);
+      });
+
+      await expect(Promise.race([scopedServer, deadline])).resolves.toBeUndefined();
+    } finally {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      socket?.destroy();
+    }
+  });
+
+  it("surfaces a typed error when the serve port is already in use", async () => {
+    const root = await makeFixture();
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", resolve);
+    });
+    const address = blocker.address();
+    if (typeof address !== "object" || address === null) {
+      throw new Error("blocking server did not expose a TCP address");
+    }
+
+    try {
+      await expect(
+        Effect.runPromise(
+          Effect.scoped(serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: address.port })),
+        ),
+      ).rejects.toMatchObject({ code: "VREF_SERVE_LISTEN_FAILED" });
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 
   it("rejects manifest asset paths that escape the vref directory", async () => {
@@ -475,6 +605,76 @@ describe("vref", () => {
     expect(manifest).not.toContain('"settings"');
   });
 
+  it("keeps synchronous argument failures in the typed Effect error channel", async () => {
+    const root = await makeFixture();
+
+    const error = await Effect.runPromise(
+      Effect.flip(runCli(["build", "--output", "json", "--fields", "nope"], root)),
+    );
+
+    expect(error).toBeInstanceOf(VrefError);
+    expect(error.code).toBe("VREF_UNKNOWN_FIELD");
+  });
+
+  it("formats unexpected main-boundary defects as structured JSON", async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      const result = await captureConsoleError(() =>
+        Effect.runPromise(
+          recoverCliProgram(Effect.die(new Error("unexpected defect")), ["--output", "json"], true),
+        ),
+      );
+
+      expect(result.logs.join("\n")).toContain('"code": "VREF_UNEXPECTED_ERROR"');
+      expect(result.logs.join("\n")).toContain("unexpected defect");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it("preserves main-boundary interruption for NodeRuntime", async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      const exit = await Effect.runPromiseExit(
+        recoverCliProgram(Effect.interrupt, ["--output", "json"], true),
+      );
+
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        expect(Cause.hasInterrupts(exit.cause)).toBe(true);
+      }
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it("formats a main-boundary defect mixed with interruption", async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    const cause = Cause.fromReasons([
+      Cause.makeDieReason(new Error("mixed defect")),
+      Cause.makeInterruptReason(),
+    ]);
+
+    try {
+      const result = await captureConsoleError(() =>
+        Effect.runPromise(recoverCliProgram(Effect.failCause(cause), ["--output", "json"], true)),
+      );
+
+      expect(result.logs.join("\n")).toContain('"code": "VREF_UNEXPECTED_ERROR"');
+      expect(result.logs.join("\n")).toContain("mixed defect");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it("treats explicit true as a boolean dry-run value", async () => {
     const root = await makeFixture();
     const screenshot = {
@@ -583,6 +783,23 @@ async function captureConsoleLog<Result>(
     return { logs, result };
   } finally {
     console.log = originalLog;
+  }
+}
+
+async function captureConsoleError<Result>(
+  run: () => Promise<Result>,
+): Promise<{ logs: string[]; result: Result }> {
+  const originalError = console.error;
+  const logs: string[] = [];
+  console.error = (...values: unknown[]) => {
+    logs.push(values.map(String).join(" "));
+  };
+
+  try {
+    const result = await run();
+    return { logs, result };
+  } finally {
+    console.error = originalError;
   }
 }
 
