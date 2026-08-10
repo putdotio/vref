@@ -604,6 +604,27 @@ describe("vref", () => {
     }
   });
 
+  it("formats a main-boundary defect mixed with interruption", async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    const cause = Cause.fromReasons([
+      Cause.makeDieReason(new Error("mixed defect")),
+      Cause.makeInterruptReason(),
+    ]);
+
+    try {
+      const result = await captureConsoleError(() =>
+        Effect.runPromise(recoverCliProgram(Effect.failCause(cause), ["--output", "json"], true)),
+      );
+
+      expect(result.logs.join("\n")).toContain('"code": "VREF_UNEXPECTED_ERROR"');
+      expect(result.logs.join("\n")).toContain("mixed defect");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it("treats explicit true as a boolean dry-run value", async () => {
     const root = await makeFixture();
     const screenshot = {

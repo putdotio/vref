@@ -441,7 +441,7 @@ export function recoverCliProgram<A, E, R>(
 ): Effect.Effect<A | void, E, R> {
   return program.pipe(
     Effect.catchCause((cause) => {
-      if (Cause.hasInterrupts(cause)) {
+      if (Cause.hasInterruptsOnly(cause)) {
         return Effect.failCause(cause);
       }
 
