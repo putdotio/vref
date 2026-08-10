@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -144,17 +145,38 @@ describe("vref", () => {
     await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
   });
 
-  it("rejects date-like strings that are not ISO date-times", async () => {
+  it("preserves date-only and offset-less manifest timestamps", async () => {
     const root = await makeFixture();
     const manifest = makeManifest("screenshots/roku-720p/home.jpg", ["home"]);
     await writeFile(
       join(root, ".vref/manifest.json"),
-      `${JSON.stringify({ ...manifest, updatedAt: "2026" }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          ...manifest,
+          updatedAt: "2026-05-19",
+          screenshots: [{ ...manifest.screenshots[0], capturedAt: "2026-05-19T13:35:00" }],
+        },
+        null,
+        2,
+      )}\n`,
     );
 
     await expect(
       validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
-    ).rejects.toThrow("ISO date-time");
+    ).resolves.toEqual(expect.objectContaining({ screenshotCount: 1 }));
+  });
+
+  it("rejects invalid manifest timestamps", async () => {
+    const root = await makeFixture();
+    const manifest = makeManifest("screenshots/roku-720p/home.jpg", ["home"]);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      `${JSON.stringify({ ...manifest, updatedAt: "not-a-date" }, null, 2)}\n`,
+    );
+
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).rejects.toThrow("date string");
   });
 
   it("renders tag filter buttons only for tags used by multiple screenshots", async () => {
@@ -304,6 +326,29 @@ describe("vref", () => {
     );
 
     await expect(fetch(url)).rejects.toThrow();
+  });
+
+  it("surfaces a typed error when the serve port is already in use", async () => {
+    const root = await makeFixture();
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", resolve);
+    });
+    const address = blocker.address();
+    if (typeof address !== "object" || address === null) {
+      throw new Error("blocking server did not expose a TCP address");
+    }
+
+    try {
+      await expect(
+        Effect.runPromise(
+          Effect.scoped(serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: address.port })),
+        ),
+      ).rejects.toMatchObject({ code: "VREF_SERVE_LISTEN_FAILED" });
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 
   it("rejects manifest asset paths that escape the vref directory", async () => {

@@ -15,13 +15,8 @@ const NonBlankString = Schema.String.check(
   }),
 );
 const PositiveFinite = Schema.Finite.check(Schema.isGreaterThan(0));
-const IsoDateTimeString = NonBlankString.check(
-  Schema.makeFilter(
-    (value) =>
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) &&
-      Option.isSome(DateTime.make(value)),
-    { expected: "an ISO date-time string with a timezone" },
-  ),
+const DateString = NonBlankString.check(
+  Schema.makeFilter((value) => Option.isSome(DateTime.make(value)), { expected: "a date string" }),
 );
 const VrefViewportSchema = Schema.Struct({
   width: PositiveFinite,
@@ -35,7 +30,7 @@ const VrefScreenshotSchema = Schema.Struct({
   device: NonBlankString,
   viewport: VrefViewportSchema,
   file: NonBlankString,
-  capturedAt: IsoDateTimeString,
+  capturedAt: DateString,
   sizeBytes: PositiveFinite,
   tags: Schema.Array(Identifier),
   notes: Schema.Array(NonBlankString),
@@ -44,7 +39,7 @@ const VrefManifestSchema = Schema.Struct({
   version: Schema.Literal(1),
   title: NonBlankString,
   description: NonBlankString,
-  updatedAt: IsoDateTimeString,
+  updatedAt: DateString,
   screenshots: Schema.Array(VrefScreenshotSchema),
 });
 
