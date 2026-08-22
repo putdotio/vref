@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Node `>=24.18.0` and pnpm.
+Use Node `>=24.19.0` and pnpm.
 
 ```bash
 pnpm install
