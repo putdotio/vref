@@ -1,6 +1,6 @@
 {
   "name": "@putdotio/vref",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "put.io visual reference CLI for curated screenshots and agent-readable UI evidence.",
   "license": "MIT",
   "repository": {
