@@ -1,6 +1,6 @@
 ---
 name: vref
-description: Use when validating `.vref/manifest.json`, rebuilding or serving `.vref/index.html`, adding screenshot entries from raw `--json`, narrowing JSON with `--fields`, or maintaining repo-local put.io visual references for visual regression, screenshot comparison, UI snapshot testing, or UI work.
+description: Validate, rebuild, serve, or extend a repo-local `.vref/` visual reference gallery with the vref CLI. Use when a put.io repo has `.vref/` and the task touches its manifest, screenshots, or gallery, or needs the visual baseline before a UI change. Do not use for screenshot capture mechanics, visual diffing, or repos without `.vref/`.
 ---
 
 # vref

@@ -29,15 +29,11 @@
 - `vref manifest add --json '{"id":"home",...}' --dry-run --output json`
 - `vref describe --output json`
 
-## Learning more about the Effect
+## Effect
 
-This repository uses the Effect Typescript library.
-
-Before writing any Effect code, first read `node_modules/effect/AGENTS.md`
-**completely**, and follow the links in the file when required.
-
-If you need to learn more about particular Effect apis and concepts that the
-guide doesn't cover, search through the source code in `node_modules/effect/src`.
+This repository uses the Effect TypeScript library. The installed version's own
+guide is `node_modules/effect/AGENTS.md`; consult it for the APIs the change
+touches, and search `node_modules/effect/src` for anything it does not cover.
 
 ## Repo-Specific Guidance
 
