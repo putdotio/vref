@@ -106,7 +106,7 @@ function renderFilterRow(label: string, group: string, labels: string[]): string
 
   return `    <div class="filter-row">
       <span class="filter-label">${escapeHtml(label)}</span>
-      <div class="filter-group">${renderFilterButtons(group, ["All", ...labels])}</div>
+      <div class="filter-group">${renderFilterButtons(group, labels)}</div>
     </div>`;
 }
 
@@ -136,9 +136,9 @@ function renderModal(): string {
 }
 
 function renderFilterButtons(group: string, labels: string[]): string {
-  return labels
+  return ["All", ...labels]
     .map((label, index) => {
-      const value = slug(label);
+      const value = index === 0 ? "all" : filterValue(label);
       const id = filterInputId(group, value);
       const checked = index === 0 ? " checked" : "";
 
@@ -162,7 +162,7 @@ function repeatedSortedTags(screenshots: VrefScreenshot[]): string[] {
 }
 
 function renderCard(screenshot: VrefScreenshot): string {
-  const tagList = screenshot.tags.map(slug).join(" ");
+  const tagList = screenshot.tags.map(filterValue).join(" ");
   const visibleTagsHtml =
     screenshot.tags.length > 1
       ? `<div class="item-tags">${screenshot.tags
@@ -171,10 +171,10 @@ function renderCard(screenshot: VrefScreenshot): string {
           .join("")}</div>`
       : "";
   const metadata = `${screenshot.viewport.width}x${screenshot.viewport.height} / ${formatBytes(screenshot.sizeBytes)}`;
-  const platformSlug = slug(screenshot.platform);
+  const platformValue = filterValue(screenshot.platform);
   const orientation = screenshotOrientation(screenshot);
 
-  return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformSlug)}" data-group="${escapeHtml(slug(screenshot.group))}" data-tags="${escapeHtml(tagList)}" data-orientation="${orientation}">
+  return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformValue)}" data-group="${escapeHtml(filterValue(screenshot.group))}" data-tags="${escapeHtml(tagList)}" data-orientation="${orientation}">
       <img class="preview" src="${escapeHtml(screenshot.file)}" alt="" loading="lazy">
       <div class="card-body">
         <div class="item-info">
@@ -477,7 +477,10 @@ function filterValues(group: string, labels: string[]): { id: string; value: str
     return [];
   }
 
-  return ["all", ...labels.map(slug)].map((value) => ({ id: filterInputId(group, value), value }));
+  return ["all", ...labels.map(filterValue)].map((value) => ({
+    id: filterInputId(group, value),
+    value,
+  }));
 }
 
 function renderClientScript(): string {
@@ -566,8 +569,14 @@ function formatUpdatedAt(value: string): string {
   }).format(date);
 }
 
-function slug(value: string): string {
-  return value.toLowerCase().replaceAll(/\s+/gu, "-");
+function filterValue(label: string): string {
+  // Fixed-width UTF-16 encoding preserves exact labels and keeps them out of CSS markup.
+  // The prefix also separates every label (including "All") from the universal sentinel.
+  let value = "value-";
+  for (let index = 0; index < label.length; index += 1) {
+    value += label.charCodeAt(index).toString(16).padStart(4, "0");
+  }
+  return value;
 }
 
 function escapeHtml(value: string): string {

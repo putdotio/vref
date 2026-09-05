@@ -56,6 +56,74 @@ describe("vref", () => {
     expect(html).not.toContain(">TV<");
   });
 
+  it("keeps arbitrary filter labels inert and distinct from All", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-labels-"));
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=",
+      "base64",
+    );
+    await writeFile(join(root, ".vref/screenshots/one.png"), png);
+    const labels = [
+      "</style><script>window.vref_marker=1</script><style>",
+      "Quotes \" and ' [brackets] # : .",
+      "日本語 😀",
+      "All",
+      "all",
+      "Main pages",
+      "main pages",
+      "main-pages",
+      "main  pages",
+      " main pages ",
+    ];
+    const manifest: VrefManifest = {
+      version: 1,
+      title: "Filter labels",
+      description: "Synthetic reference",
+      updatedAt: "2026-09-05",
+      screenshots: labels.map((label, index) => ({
+        id: `item-${index}`,
+        title: `Item ${index}`,
+        group: label,
+        platform: label,
+        device: "Synthetic",
+        viewport: { width: 1, height: 1 },
+        file: "screenshots/one.png",
+        capturedAt: "2026-09-05",
+        sizeBytes: png.length,
+        tags: ["all", index % 2 === 0 ? "first" : "second"],
+        notes: [],
+      })),
+    };
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(manifest));
+    await buildGallery({
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    });
+    const html = await readFile(join(root, ".vref/index.html"), "utf8");
+    expect(html.match(/<style>/gu)).toHaveLength(1);
+    expect(html.match(/<script>/gu)).toHaveLength(1);
+    expect(html).toContain("&lt;/style&gt;&lt;script&gt;window.vref_marker=1");
+    expect(html).toContain("日本語 😀");
+    const ids = [...html.matchAll(/id="(filter-[^"]+)"/gu)].map((match) => match[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const group of ["platform", "group"]) {
+      const values = [...html.matchAll(new RegExp(`data-${group}="([^"]+)"`, "gu"))].map(
+        (match) => match[1],
+      );
+      expect(new Set(values).size).toBe(labels.length);
+      for (const value of values) {
+        expect(value).toMatch(/^[a-z0-9-]+$/u);
+        expect(html).toContain(`id="filter-${group}-${value}"`);
+        expect(html).toContain(
+          `.container:has(#filter-${group}-${value}:checked) #gallery .card:not([data-${group}="${value}"]) { display: none; }`,
+        );
+      }
+      expect(html).toContain(`id="filter-${group}-all" checked`);
+    }
+  });
+
   it("derives portrait and square card layouts from viewport dimensions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vref-"));
     await mkdir(join(root, ".vref/screenshots"), { recursive: true });
@@ -107,10 +175,10 @@ describe("vref", () => {
 
     const html = await readFile(join(root, ".vref/index.html"), "utf8");
     expect(html).toContain(
-      'data-title="Phone" data-platform="ios" data-group="screens" data-tags="phone" data-orientation="portrait"',
+      'data-title="Phone" data-platform="value-0069004f0053" data-group="value-00530063007200650065006e0073" data-tags="value-00700068006f006e0065" data-orientation="portrait"',
     );
     expect(html).toContain(
-      'data-title="Square" data-platform="ios" data-group="components" data-tags="component" data-orientation="square"',
+      'data-title="Square" data-platform="value-0069004f0053" data-group="value-0043006f006d0070006f006e0065006e00740073" data-tags="value-0063006f006d0070006f006e0065006e0074" data-orientation="square"',
     );
     expect(html).toContain('.card[data-orientation="portrait"] .preview { aspect-ratio: 3 / 4; }');
     expect(html).toContain('.card[data-orientation="square"] .preview { aspect-ratio: 1; }');
@@ -127,7 +195,7 @@ describe("vref", () => {
     });
 
     const html = await readFile(join(root, ".vref/index.html"), "utf8");
-    expect(html).toContain('data-tags="home"');
+    expect(html).toContain('data-tags="value-0068006f006d0065"');
     expect(html).not.toContain('<span class="tag">home</span>');
   });
 
@@ -229,16 +297,30 @@ describe("vref", () => {
     });
 
     const html = await readFile(join(root, ".vref/index.html"), "utf8");
-    expect(html).toContain('data-filter-group="tag" data-filter-value="search"');
-    expect(html).toContain('data-filter-group="tag" data-filter-value="shared"');
-    expect(html).toContain('type="radio" name="filter-tag" id="filter-tag-search"');
     expect(html).toContain(
-      '.container:has(#filter-tag-search:checked) #gallery .card:not([data-tags~="search"]) { display: none; }',
+      'data-filter-group="tag" data-filter-value="value-007300650061007200630068"',
     );
-    expect(html).not.toContain('data-filter-group="tag" data-filter-value="keyboard"');
-    expect(html).not.toContain('data-filter-group="tag" data-filter-value="device"');
-    expect(html).toContain('data-tags="search shared keyboard"');
-    expect(html).toContain('data-tags="search shared device"');
+    expect(html).toContain(
+      'data-filter-group="tag" data-filter-value="value-007300680061007200650064"',
+    );
+    expect(html).toContain(
+      'type="radio" name="filter-tag" id="filter-tag-value-007300650061007200630068"',
+    );
+    expect(html).toContain(
+      '.container:has(#filter-tag-value-007300650061007200630068:checked) #gallery .card:not([data-tags~="value-007300650061007200630068"]) { display: none; }',
+    );
+    expect(html).not.toContain(
+      'data-filter-group="tag" data-filter-value="value-006b006500790062006f006100720064"',
+    );
+    expect(html).not.toContain(
+      'data-filter-group="tag" data-filter-value="value-006400650076006900630065"',
+    );
+    expect(html).toContain(
+      'data-tags="value-007300650061007200630068 value-007300680061007200650064 value-006b006500790062006f006100720064"',
+    );
+    expect(html).toContain(
+      'data-tags="value-007300650061007200630068 value-007300680061007200650064 value-006400650076006900630065"',
+    );
   });
 
   it("omits filter rows that only have one available value", async () => {
@@ -293,8 +375,12 @@ describe("vref", () => {
     const html = await readFile(join(root, ".vref/index.html"), "utf8");
     expect(html).not.toContain('data-filter-group="platform"');
     expect(html).not.toContain('data-filter-group="tag"');
-    expect(html).toContain('data-filter-group="group" data-filter-value="main-pages"');
-    expect(html).toContain('data-filter-group="group" data-filter-value="settings"');
+    expect(html).toContain(
+      'data-filter-group="group" data-filter-value="value-004d00610069006e002000700061006700650073"',
+    );
+    expect(html).toContain(
+      'data-filter-group="group" data-filter-value="value-00530065007400740069006e00670073"',
+    );
   });
 
   it("refuses servable file paths that resolve outside the serve root", async () => {
