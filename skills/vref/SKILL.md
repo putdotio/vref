@@ -46,12 +46,6 @@ manifest entry or add the asset under `.vref/screenshots/`, then validate again:
 { "id": "home", "file": "screenshots/roku-720p/home.jpg" }
 ```
 
-## Safety Rules
-
-Follow the [safety rules](references/safety.md) before adding manifest text or
-screenshot files. That reference owns the path, privacy, untrusted-content, and
-artifact-placement constraints.
-
 ## Command Notes
 
 - `vref build --check` is the build-command no-write validation path.

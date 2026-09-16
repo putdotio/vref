@@ -50,11 +50,7 @@ vref validate --output json
 vref build --check --output json
 ```
 
-After the owning app repo captures or updates screenshots, rebuild the gallery:
-
-```bash
-vref build
-```
+Rerun `vref build` after the owning app repo captures or updates screenshots.
 
 Open the gallery locally:
 

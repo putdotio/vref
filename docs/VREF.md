@@ -56,12 +56,8 @@ vref build --check --output json
 
 `vref` does not copy or approve screenshots. Product repos own capture mechanics, screenshot file updates, and manifest metadata updates.
 
-You can append one manifest entry from a schema-checked JSON payload:
-
-```bash
-vref manifest add --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","viewport":{"width":1280,"height":720},"file":"screenshots/roku-720p/settings.jpg","capturedAt":"2026-05-19T13:35:00.000Z","sizeBytes":39716,"tags":["settings"],"notes":["Settings page."]}' --dry-run --output json
-```
-
+`vref manifest add --json '<entry>' --dry-run --output json` appends one
+schema-checked entry; the payload shape is in [Manifest](../README.md#manifest).
 Use `--dry-run` first. Removing it writes `.vref/manifest.json`; it does not
 capture, copy, or validate the screenshot file as present beyond reporting
 whether the referenced asset already exists.
@@ -85,26 +81,6 @@ top-level result fields such as `screenshotCount`, `groupCount`, `commands`, or
 Gallery cards derive their orientation from each screenshot's `viewport` dimensions. Landscape
 references use a 16:9 preview frame, portrait references use 3:4, and square references use 1:1.
 Previews contain the complete image without cropping; open a card to inspect it at full size.
-
-## Roku Migration Path
-
-`putio-roku` can replace its hand-written gallery script with `vref` while keeping the current `docs/visual/` location during migration:
-
-```json
-{
-  "scripts": {
-    "visual:gallery": "vref build --manifest docs/visual/manifest.json --out docs/visual/index.html"
-  }
-}
-```
-
-After `@putdotio/vref` is published, add it as a dev dependency in `putio-roku`:
-
-```bash
-pnpm add -D @putdotio/vref
-```
-
-The same manifest and screenshots can later move from `docs/visual/` to `.vref/` with no schema change.
 
 ## Safety Rules
 

@@ -49,10 +49,7 @@ pnpm run pack:dry
 
 ## Development Notes
 
-- Keep capture mechanics in the product repo. `vref` should stay platform-neutral.
-- Keep manifest parsing strict and typed; external input is not trusted.
-- Prefer `--output json` in examples intended for agents.
-- Do not add visual diffing, hosted aggregation, PR comments, or platform-specific capture in this repo without a design update.
+Scope and coding boundaries: [Repo-Specific Guidance](./AGENTS.md#repo-specific-guidance).
 
 ## Pull Requests
 
