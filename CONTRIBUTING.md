@@ -57,4 +57,5 @@ pnpm run pack:dry
 ## Pull Requests
 
 Use Conventional Commit-style titles such as `feat(cli): add gallery build command`.
-Include the relevant verification command and any visual reference screenshots or gallery links when UI output changes.
+Include the relevant verification command and any visual reference screenshots or gallery links when UI output changes. Upload screenshots with
+`gh pr comment <n> --attach ./file.png`; do not commit them.
