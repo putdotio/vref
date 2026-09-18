@@ -11,6 +11,7 @@ export type {
   VrefViewport,
 } from "./types.js";
 export { buildGallery, validateGallery } from "./build.js";
+export { VREF_ERROR_CODES, type VrefErrorCode, type VrefErrorJson } from "./error-codes.js";
 export { convertGallery } from "./convert.js";
 export { encodeWebp, isWebpFile, webpSiblingPath } from "./image.js";
 export { addScreenshot, decodeScreenshotDraftJson, decodeScreenshotJson } from "./manifest-edit.js";

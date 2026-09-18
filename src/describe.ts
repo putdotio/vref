@@ -1,3 +1,5 @@
+import { VREF_ERROR_CODES } from "./error-codes.js";
+
 export function describeCli(): unknown {
   return {
     name: "vref",
@@ -72,7 +74,13 @@ export function describeCli(): unknown {
             type: "string",
             scope: "top-level result fields",
             values: ["manifestPath", "outputPath", "screenshotCount", "groupCount", "deviceCount"],
-            checkValues: ["manifestPath", "screenshotCount", "groupCount", "deviceCount"],
+            checkValues: [
+              "manifestPath",
+              "screenshotCount",
+              "groupCount",
+              "deviceCount",
+              "orphanAssets",
+            ],
           },
           help: { type: "boolean", flags: ["--help"], default: false },
         },
@@ -80,6 +88,9 @@ export function describeCli(): unknown {
       validate: {
         description: "Validate a visual reference manifest and screenshot assets without writing.",
         mutates: [],
+        notes: [
+          "orphanAssets lists image files under the manifest directory no entry references; it never fails the command",
+        ],
         options: {
           manifest: { type: "string", default: ".vref/manifest.json" },
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
@@ -87,7 +98,13 @@ export function describeCli(): unknown {
             flag: "--fields",
             type: "string",
             scope: "top-level result fields",
-            values: ["manifestPath", "screenshotCount", "groupCount", "deviceCount"],
+            values: [
+              "manifestPath",
+              "screenshotCount",
+              "groupCount",
+              "deviceCount",
+              "orphanAssets",
+            ],
           },
           help: { type: "boolean", flags: ["--help"], default: false },
         },
@@ -271,12 +288,18 @@ export function describeCli(): unknown {
               "image",
               "automation",
               "commands",
+              "errors",
               "manifest",
             ],
           },
           help: { type: "boolean", flags: ["--help"], default: false },
         },
       },
+    },
+    errors: {
+      shape: "{ ok: false, error: { code, message } }",
+      exitCode: 1,
+      codes: VREF_ERROR_CODES,
     },
     manifest: {
       version: 1,

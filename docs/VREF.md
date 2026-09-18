@@ -127,7 +127,17 @@ vref serve
 Unrecognised flag names and value-less path flags are refused rather than
 ignored, so `vref convert --dryrun` fails instead of converting.
 
-`validate` checks the manifest and screenshot assets without writing files.
+Every failure exits 1. Under `--output json` it prints
+`{ "ok": false, "error": { "code", "message" } }`; human output carries the
+message alone, so automation wanting the code has to ask for JSON. Branch on
+`code`, never on the message text — `vref describe --fields errors` lists the
+whole vocabulary.
+
+`validate` checks the manifest and screenshot assets without writing files. It
+also reports `orphanAssets` — image files in the manifest directory that no
+entry references, usually a screenshot whose entry was deleted. Paths are
+relative to that directory, which `--manifest` chooses and which is not always
+`.vref/`. Orphans never fail the command; nothing else names them.
 `build --check` performs the same no-write validation through the build command.
 `build` validates the manifest, confirms screenshot files exist, and writes `.vref/index.html`.
 `serve` serves the `.vref/` directory on `127.0.0.1:4173` by default.

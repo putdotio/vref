@@ -12,6 +12,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +30,7 @@ import {
 } from "../src/cli.js";
 import { convertGallery } from "../src/convert.js";
 import { describeCli } from "../src/describe.js";
+import { VREF_ERROR_CODES } from "../src/error-codes.js";
 import { VrefError } from "../src/errors.js";
 import { encodeWebp } from "../src/image.js";
 import { readManifest } from "../src/manifest.js";
@@ -2322,6 +2324,127 @@ describe("vref webp pipeline", () => {
   });
 });
 
+describe("orphan assets", () => {
+  it("reports image files under the manifest directory no entry references", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/roku-720p/stale.webp"), "left behind");
+    await writeFile(join(root, ".vref/screenshots/dropped.PNG"), "left behind");
+    await writeFile(join(root, ".vref/notes.txt"), "not an image");
+    await writeFile(join(root, ".vref/index.html"), "<html></html>");
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([
+      "screenshots/dropped.PNG",
+      "screenshots/roku-720p/stale.webp",
+    ]);
+    expect(result.screenshotCount).toBe(1);
+  });
+
+  it("reports nothing when every asset is referenced", async () => {
+    const root = await makeFixture();
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([]);
+  });
+
+  it("never walks out of the manifest directory through a symlink", async () => {
+    const root = await makeFixture();
+    const outside = join(root, "outside");
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, "elsewhere.webp"), "not ours");
+    await symlink(outside, join(root, ".vref/linked"));
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([]);
+  });
+
+  it("quotes an orphan path so a filename cannot forge terminal output", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/a\nvalidated 0 references.webp"), "hostile");
+
+    const human = await captureConsoleLog(() => Effect.runPromise(runCli(["validate"], root)));
+
+    expect(human.logs).toHaveLength(1);
+    expect(human.logs[0]).toContain(String.raw`"screenshots/a\nvalidated 0 references.webp"`);
+  });
+
+  it("surfaces orphans through validate and build --check", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/stale.webp"), "left behind");
+
+    const human = await captureConsoleLog(() => Effect.runPromise(runCli(["validate"], root)));
+    const json = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(["build", "--check", "--output", "json", "--fields", "orphanAssets"], root),
+      ),
+    );
+
+    expect(human.logs.join("\n")).toBe(
+      'validated 1 references; 1 unreferenced: "screenshots/stale.webp"',
+    );
+    expect(json.logs.join("\n")).toContain('"screenshots/stale.webp"');
+  });
+});
+
+const FOLDS_CASE = foldsCase();
+
+describe("case-variant orphans", () => {
+  // Which answer is right depends on the filesystem, so each half runs where it
+  // can: CI is Linux and case-sensitive, a developer machine usually is not.
+  it.skipIf(!FOLDS_CASE)("treats a case-variant spelling as the referenced file", async () => {
+    const root = await makeFixture("screenshots/roku-720p/HOME.JPG");
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([]);
+  });
+
+  it.skipIf(FOLDS_CASE)("reports a distinct file that only differs by case", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/roku-720p/HOME.JPG"), "a second file");
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual(["screenshots/roku-720p/HOME.JPG"]);
+  });
+});
+
+describe("error codes", () => {
+  it("publishes exactly the codes the source throws", async () => {
+    const sourceDir = new URL("../src/", import.meta.url);
+    const thrown = new Set<string>();
+
+    for (const file of await readdir(sourceDir)) {
+      if (!file.endsWith(".ts")) {
+        continue;
+      }
+
+      const source = await readFile(new URL(file, sourceDir), "utf8");
+      for (const match of source.matchAll(/new VrefError\(\s*"(VREF_[A-Z_]+)"/gu)) {
+        thrown.add(match[1] as string);
+      }
+    }
+
+    // The constructor's parameter type covers the other direction: a code that
+    // is not in the list cannot be thrown at all. This catches the leftover —
+    // a code kept in the published vocabulary after its throw site went away.
+    expect([...VREF_ERROR_CODES].sort()).toEqual([...thrown].sort());
+  });
+
+  it("describes the error contract it publishes", () => {
+    const schema = describeCli() as {
+      errors: { codes: readonly string[]; exitCode: number; shape: string };
+    };
+
+    expect(schema.errors.codes).toEqual(VREF_ERROR_CODES);
+    expect(schema.errors.exitCode).toBe(1);
+    expect(schema.errors.shape).toBe("{ ok: false, error: { code, message } }");
+  });
+});
+
 describe("path safety", () => {
   // These rejections are the whole sandbox for a tool that writes files from
   // agent-supplied JSON. Exercising them through buildGallery only ever reaches
@@ -2390,6 +2513,16 @@ describe("path safety", () => {
     }
   });
 });
+
+/** Whether this filesystem treats `a.tmp` and `A.TMP` as one file. */
+function foldsCase(): boolean {
+  const probe = mkdtempSync(join(tmpdir(), "vref-case-"));
+  writeFileSync(join(probe, "a.tmp"), "");
+  const folds = existsSync(join(probe, "A.TMP"));
+  rmSync(probe, { recursive: true, force: true });
+
+  return folds;
+}
 
 /** Status code for a GET carrying an explicit Host, which fetch refuses to set. */
 async function statusWithHost(

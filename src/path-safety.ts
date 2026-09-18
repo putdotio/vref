@@ -80,17 +80,20 @@ export function safeManifestAssetPath(filePath: string, label: string): string {
   return normalized;
 }
 
-export function assertSupportedImage(filePath: string): void {
+/** Extensions a manifest entry may reference. `vref` only ever writes `.webp`. */
+export const SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"] as const;
+
+export function isSupportedImage(filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
-  if (
-    extension !== ".jpg" &&
-    extension !== ".jpeg" &&
-    extension !== ".png" &&
-    extension !== ".webp"
-  ) {
+
+  return SUPPORTED_IMAGE_EXTENSIONS.some((supported) => supported === extension);
+}
+
+export function assertSupportedImage(filePath: string): void {
+  if (!isSupportedImage(filePath)) {
     throw new VrefError(
       "VREF_UNSUPPORTED_IMAGE",
-      `image must be .jpg, .jpeg, .png, or .webp: ${filePath}`,
+      `image must be ${SUPPORTED_IMAGE_EXTENSIONS.join(", ")}: ${filePath}`,
     );
   }
 }
