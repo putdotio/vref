@@ -26,6 +26,8 @@
 - `vref build`
 - `vref build --check --output json`
 - `vref serve`
+- `vref screenshot add ./capture.png --json '{"id":"home",...}' --dry-run --output json`
+- `vref convert --dry-run --output json`
 - `vref manifest add --json '{"id":"home",...}' --dry-run --output json`
 - `vref describe --output json`
 
@@ -37,7 +39,9 @@ touches, and search `node_modules/effect/src` for anything it does not cover.
 
 ## Repo-Specific Guidance
 
-- Keep `vref` platform-neutral: it renders, validates, and serves visual references; app repos capture and curate screenshots
+- Keep `vref` platform-neutral: it encodes, renders, validates, and serves visual references; app repos capture and curate screenshots
+- `vref` writes webp only. Manifests still accept legacy `.jpg`, `.jpeg`, and `.png` entries so existing repos keep validating; `vref convert` migrates them
+- Keep `sharp` behind a lazy import so `validate`, `build`, and `serve` never load the encoder
 - Keep `.vref/manifest.json` and `.vref/screenshots/*` safe for the owning repo's visibility before committing
 - Do not add visual diffing, PR comments, cross-repo aggregation, hosted services, or platform-specific capture without a new design pass
 - Use typed manifest parsing and structured CLI output; agents should prefer `--output json`

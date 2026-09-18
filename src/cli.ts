@@ -5,9 +5,11 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { Cause, Effect } from "effect";
 import { buildGallery, validateGallery } from "./build.js";
+import { convertGallery } from "./convert.js";
 import { describeCli } from "./describe.js";
 import { normalizeError, VrefError } from "./errors.js";
-import { addScreenshot, decodeScreenshotJson } from "./manifest-edit.js";
+import { addScreenshot, decodeScreenshotDraftJson, decodeScreenshotJson } from "./manifest-edit.js";
+import { addScreenshotFromSource } from "./screenshot-add.js";
 import { parseFields, renderJsonError, renderJsonResult, type OutputFormat } from "./output.js";
 import { serve } from "./serve.js";
 
@@ -35,7 +37,9 @@ export const runCli = Effect.fn("vref.cli")(function* (
   options: RunCliOptions = {},
 ) {
   const args = yield* syncBoundary(() => parseArgs(argv, options.isInteractiveTerminal ?? true));
-  yield* syncBoundary(() => validateBooleanFlags(args, ["check", "dry-run", "help"]));
+  yield* syncBoundary(() =>
+    validateBooleanFlags(args, ["check", "dry-run", "force", "help", "keep-source"]),
+  );
 
   if (getBoolean(args, "help")) {
     yield* Effect.sync(() => printHelp(args.command));
@@ -128,6 +132,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
           "version",
           "defaults",
           "output",
+          "image",
           "automation",
           "commands",
           "manifest",
@@ -178,6 +183,101 @@ export const runCli = Effect.fn("vref.cli")(function* (
         ? `validated manifest add for ${result.screenshot.id}`
         : `added manifest screenshot ${result.screenshot.id}`;
       yield* Effect.sync(() => print(args, result, message));
+      return;
+    }
+
+    case "screenshot": {
+      const subcommand = args.positionals[0];
+      if (subcommand !== "add") {
+        return yield* Effect.fail(
+          new VrefError(
+            "VREF_UNKNOWN_COMMAND",
+            "Unknown screenshot command. Use `vref screenshot add`.",
+          ),
+        );
+      }
+
+      const sourcePath = args.positionals[1];
+      if (sourcePath === undefined) {
+        return yield* Effect.fail(
+          new VrefError(
+            "VREF_SOURCE_REQUIRED",
+            "`vref screenshot add` requires a source image path",
+          ),
+        );
+      }
+
+      const rawJson = getString(args, "json");
+      if (rawJson === undefined) {
+        return yield* Effect.fail(
+          new VrefError("VREF_JSON_REQUIRED", "`vref screenshot add` requires --json"),
+        );
+      }
+
+      yield* syncBoundary(() =>
+        validateFields(args, [
+          "dryRun",
+          "file",
+          "manifestPath",
+          "reencoded",
+          "screenshot",
+          "screenshotCount",
+          "sourceBytes",
+          "sourcePath",
+        ]),
+      );
+      const quality = yield* optionalPositiveInteger(args, "quality");
+      const draft = yield* syncBoundary(() => decodeScreenshotDraftJson(rawJson));
+      const result = yield* promiseBoundary(() =>
+        addScreenshotFromSource({
+          cwd,
+          draft,
+          dryRun: getBoolean(args, "dry-run") || getBoolean(args, "check"),
+          force: getBoolean(args, "force"),
+          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          quality,
+          sourcePath,
+        }),
+      );
+      const message = result.dryRun
+        ? `validated screenshot add for ${result.screenshot.id}`
+        : `wrote ${result.file} (${result.screenshot.sizeBytes} B from ${result.sourceBytes} B)`;
+      yield* Effect.sync(() => print(args, result, message));
+      return;
+    }
+
+    case "convert": {
+      yield* syncBoundary(() =>
+        validateFields(args, [
+          "conversions",
+          "convertedCount",
+          "dryRun",
+          "manifestPath",
+          "savedBytes",
+          "skippedCount",
+        ]),
+      );
+      const quality = yield* optionalPositiveInteger(args, "quality");
+      const dryRun = getBoolean(args, "dry-run") || getBoolean(args, "check");
+      const result = yield* promiseBoundary(() =>
+        convertGallery({
+          cwd,
+          dryRun,
+          force: getBoolean(args, "force"),
+          keepSource: getBoolean(args, "keep-source"),
+          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          only: parseList(getString(args, "only")),
+          quality,
+        }),
+      );
+      const verb = result.dryRun ? "would convert" : "converted";
+      yield* Effect.sync(() =>
+        print(
+          args,
+          result,
+          `${verb} ${result.convertedCount} references to webp (${result.savedBytes} B saved)`,
+        ),
+      );
       return;
     }
 
@@ -255,6 +355,19 @@ function getStringFromFlags(flags: Map<string, string | true>, key: string): str
   }
 
   return undefined;
+}
+
+function parseList(value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return entries.length > 0 ? entries : undefined;
 }
 
 function getBoolean(args: ParsedArgs, key: string): boolean {
@@ -365,12 +478,39 @@ Usage:
     return;
   }
 
+  if (command === "screenshot") {
+    console.log(`vref screenshot add
+
+Encodes a captured .png, .jpg, or .webp source to lossless webp, writes it under
+.vref/screenshots/, and appends the manifest entry. Pass --quality for lossy webp.
+Pass "viewport" in --json for retina captures; it defaults to the image's pixel size.
+
+Usage:
+  vref screenshot add <source> --json '{"id":"home","title":"Home","group":"Main pages","platform":"Web","device":"Chrome 1440"}' [--manifest .vref/manifest.json] [--quality 1-100] [--force] [--dry-run] [--output json] [--fields field[,field...]]
+`);
+    return;
+  }
+
+  if (command === "convert") {
+    console.log(`vref convert
+
+Re-encodes every non-webp manifest asset to webp, rewrites its manifest file path
+and sizeBytes, and removes the original unless --keep-source.
+
+Usage:
+  vref convert [--manifest .vref/manifest.json] [--only id[,id...]] [--quality 1-100] [--keep-source] [--force] [--dry-run] [--output json] [--fields field[,field...]]
+`);
+    return;
+  }
+
   console.log(`vref
 
 Usage:
   vref build [--manifest .vref/manifest.json] [--out .vref/index.html] [--check] [--dry-run] [--output json]
   vref validate [--manifest .vref/manifest.json] [--output json]
   vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json]
+  vref screenshot add <source> --json '{"id":"home",...}' [--quality 1-100] [--force] [--dry-run] [--output json]
+  vref convert [--only id[,id...]] [--keep-source] [--dry-run] [--output json]
   vref manifest add --json '{"id":"home",...}' [--manifest .vref/manifest.json] [--dry-run] [--output json]
   vref describe --output json
 `);

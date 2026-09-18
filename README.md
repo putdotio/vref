@@ -50,7 +50,12 @@ vref validate --output json
 vref build --check --output json
 ```
 
-Rerun `vref build` after the owning app repo captures or updates screenshots.
+Add a capture to the gallery. `vref` encodes it to lossless webp, writes it under
+`.vref/screenshots/`, and appends the manifest entry:
+
+```bash
+vref screenshot add ./dist/tmp/home.png --json '{"id":"home","title":"Home","group":"Main pages","platform":"Web","device":"Chrome 1440","tags":["home"],"notes":["Home grid."]}'
+```
 
 Open the gallery locally:
 
@@ -71,6 +76,37 @@ the default. Use `--fields` to keep automation responses small:
 vref validate --fields screenshotCount,groupCount
 vref describe --fields commands,automation
 ```
+
+## Screenshots
+
+`vref` writes webp only. `screenshot add` accepts `.png`, `.jpg`, and `.webp`
+sources and encodes lossless webp by default, because references are pixel
+evidence: on flat UI captures lossless beats lossy q85 on size _and_ keeps text
+edges exact. Pass `--quality 1-100` for lossy webp on photo-heavy captures. A
+`.webp` source is copied verbatim rather than re-encoded.
+
+The command derives what it can measure, so the manifest never drifts from the
+file: `file` defaults to `screenshots/<id>.webp`, `sizeBytes` is the encoded byte
+length, `viewport` is the image's pixel size, and `capturedAt` is the source
+file's modification time. Retina captures have pixel dimensions at 2x the CSS
+viewport, so pass `viewport` in `--json` explicitly for those.
+
+Preview an add without writing anything:
+
+```bash
+vref screenshot add ./capture.png --json '{"id":"home",...}' --dry-run --output json
+```
+
+Migrate an existing png or jpeg reference set. Manifest entries and assets are
+rewritten together, and the originals are removed unless `--keep-source`:
+
+```bash
+vref convert --dry-run --output json
+vref convert
+```
+
+Legacy `.jpg`, `.jpeg`, and `.png` manifest entries keep validating, so upgrading
+`vref` never breaks an existing gallery — convert when you choose to.
 
 ## Manifest
 
@@ -101,7 +137,9 @@ Screenshot `file` paths are relative to `.vref/` and must stay inside that direc
 }
 ```
 
-Append a screenshot entry from raw JSON without editing the manifest by hand:
+Append a metadata-only entry from raw JSON, for a screenshot file you are placing
+yourself. When you have the captured image, prefer `vref screenshot add` above —
+it encodes webp and measures the derived fields for you:
 
 ```bash
 vref manifest add --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","viewport":{"width":1280,"height":720},"file":"screenshots/roku-720p/settings.jpg","capturedAt":"2026-05-19T13:35:00.000Z","sizeBytes":39716,"tags":["settings"],"notes":["Settings page."]}' --dry-run --output json

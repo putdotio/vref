@@ -1,7 +1,13 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { VrefError } from "./errors.js";
-import { readManifestDocument, screenshotFromJson, writeManifestDocument } from "./manifest.js";
+import {
+  readManifestDocument,
+  screenshotDraftFromJson,
+  screenshotFromJson,
+  writeManifestDocument,
+  type VrefScreenshotDraft,
+} from "./manifest.js";
 import { assertNoSymlinkInPath, workspacePaths } from "./path-safety.js";
 import type { VrefManifestAddResult, VrefScreenshot } from "./types.js";
 
@@ -46,17 +52,22 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
 }
 
 export function decodeScreenshotJson(rawJson: string): VrefScreenshot {
-  let parsed: unknown;
+  return screenshotFromJson(parseJson(rawJson), "--json");
+}
+
+export function decodeScreenshotDraftJson(rawJson: string): VrefScreenshotDraft {
+  return screenshotDraftFromJson(parseJson(rawJson), "--json");
+}
+
+function parseJson(rawJson: string): unknown {
   try {
-    parsed = JSON.parse(rawJson);
+    return JSON.parse(rawJson);
   } catch (error) {
     throw new VrefError(
       "VREF_JSON_INVALID",
       `--json must contain valid screenshot JSON: ${messageFrom(error)}`,
     );
   }
-
-  return screenshotFromJson(parsed, "--json");
 }
 
 async function screenshotAssetExists(rootPath: string, assetPath: string): Promise<boolean> {

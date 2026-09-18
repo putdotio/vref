@@ -6,7 +6,7 @@ It is not a screenshot capture harness and it is not a visual regression system.
 ## Architecture
 
 - Product repos own `.vref/manifest.json`, `.vref/screenshots/*`, and capture commands.
-- `@putdotio/vref` owns validation, gallery rendering, local serving, and command introspection.
+- `@putdotio/vref` owns webp encoding, validation, gallery rendering, local serving, and command introspection.
 - Prototype and visual-experiment repos remain separate; app screenshots stay in the owning app repo.
 
 Default shape:
@@ -18,10 +18,18 @@ Default shape:
   index.html
 ```
 
-## Add A Screenshot Slot
+## Add A Screenshot
 
-Add a screenshot entry to `.vref/manifest.json`.
-The `file` path is relative to `.vref/` and should point under `.vref/screenshots/`.
+Capture with the owning app repo's platform harness, then hand the file to
+`vref`. It encodes webp, writes the asset, and appends the manifest entry:
+
+```bash
+vref screenshot add ./dist/tmp/settings.png --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","tags":["settings","list","device"],"notes":["Settings page with version, device, and logout rows visible."]}'
+```
+
+Only the descriptive fields are yours to write. `file`, `sizeBytes`, `viewport`,
+and `capturedAt` are measured from the image and the source file, which is what
+keeps them honest:
 
 ```json
 {
@@ -31,7 +39,7 @@ The `file` path is relative to `.vref/` and should point under `.vref/screenshot
   "platform": "Roku",
   "device": "Roku 720p",
   "viewport": { "width": 1280, "height": 720 },
-  "file": "screenshots/roku-720p/settings.jpg",
+  "file": "screenshots/settings.webp",
   "capturedAt": "2026-05-19T13:35:00.000Z",
   "sizeBytes": 39716,
   "tags": ["settings", "list", "device"],
@@ -39,9 +47,34 @@ The `file` path is relative to `.vref/` and should point under `.vref/screenshot
 }
 ```
 
+Override any of the derived fields by including it in `--json`. Retina captures
+need that for `viewport`, since their pixel dimensions are 2x the CSS viewport.
+Use `--dry-run` to encode and validate without writing, and `--force` to replace
+an existing asset.
+
+## Image Format
+
+References are webp. Sources may be `.png`, `.jpg`, or `.webp`; the output is
+always `.webp`, lossless unless `--quality 1-100` asks for lossy. Lossless is the
+default because these are pixel evidence: on flat UI captures it is smaller than
+lossy q85 _and_ leaves text edges exact. A `.webp` source is copied verbatim.
+
+Existing `.jpg`, `.jpeg`, and `.png` manifest entries stay valid. Migrate a
+reference set when you want to, not when you upgrade:
+
+```bash
+vref convert --dry-run --output json
+vref convert
+```
+
+`convert` re-encodes each non-webp asset, rewrites its `file` and `sizeBytes`
+together, and removes the original unless `--keep-source`. Scope it with
+`--only id[,id...]`. The manifest is rewritten before any original is deleted,
+so an interrupted run always leaves every entry resolvable.
+
 ## Refresh References
 
-Capture and curate screenshots with the owning app repo's platform harness, then rebuild the gallery:
+Rebuild the gallery after screenshots change:
 
 ```bash
 vref build
@@ -54,7 +87,7 @@ vref validate --output json
 vref build --check --output json
 ```
 
-`vref` does not copy or approve screenshots. Product repos own capture mechanics, screenshot file updates, and manifest metadata updates.
+`vref` does not capture or approve screenshots. Product repos own capture mechanics and decide which captures are worth committing.
 
 `vref manifest add --json '<entry>' --dry-run --output json` appends one
 schema-checked entry; the payload shape is in [Manifest](../README.md#manifest).
@@ -85,6 +118,7 @@ Previews contain the complete image without cropping; open a card to inspect it 
 ## Safety Rules
 
 - Commit only curated screenshots with stable names.
+- Re-encoding drops source metadata, so EXIF from a `.png` or `.jpg` capture never reaches `.vref/`. A `.webp` source is copied verbatim and keeps whatever metadata it carries; pass `--quality` to force a re-encode if that matters.
 - Keep timestamped and raw captures in ignored folders such as `dist/tmp/`.
 - Do not commit private screenshots, auth codes, secrets, local IPs, real account identifiers, content IDs, or local absolute paths.
 - Use synthetic or public-safe account state.

@@ -40,6 +40,34 @@ export type VrefValidateResult = {
   deviceCount: number;
 };
 
+export type VrefScreenshotAddResult = {
+  dryRun: boolean;
+  file: string;
+  manifestPath: string;
+  reencoded: boolean;
+  screenshot: VrefScreenshot;
+  screenshotCount: number;
+  sourceBytes: number;
+  sourcePath: string;
+};
+
+export type VrefConversion = {
+  id: string;
+  from: string;
+  fromBytes: number;
+  to: string;
+  toBytes: number;
+};
+
+export type VrefConvertResult = {
+  conversions: VrefConversion[];
+  convertedCount: number;
+  dryRun: boolean;
+  manifestPath: string;
+  savedBytes: number;
+  skippedCount: number;
+};
+
 export type VrefManifestAddResult = {
   assetExists: boolean;
   dryRun: boolean;
