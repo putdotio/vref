@@ -116,7 +116,7 @@ function renderGalleryGrid(viewModel: GalleryViewModel): string {
   const referenceCount = manifest.screenshots.length;
   const referenceLabel = referenceCount === 1 ? "reference" : "references";
 
-  return `  <div class="results-count">${referenceCount} ${referenceLabel} &middot; Updated ${escapeHtml(formatUpdatedAt(manifest.updatedAt))}</div>
+  return `  <div class="results-count"><span id="results-count-value">${referenceCount} ${referenceLabel}</span> &middot; Updated ${escapeHtml(formatUpdatedAt(manifest.updatedAt))}</div>
   <div class="grid" id="gallery">
     ${cards}
   </div>`;
@@ -174,8 +174,11 @@ function renderCard(screenshot: VrefScreenshot): string {
   const platformValue = filterValue(screenshot.platform);
   const orientation = screenshotOrientation(screenshot);
 
-  return `<a class="card" href="${escapeHtml(screenshot.file)}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformValue)}" data-group="${escapeHtml(filterValue(screenshot.group))}" data-tags="${escapeHtml(tagList)}" data-orientation="${orientation}">
-      <img class="preview" src="${escapeHtml(screenshot.file)}" alt="" loading="lazy">
+  // encodeURI, not just escapeHtml: serve decodes the request path, so a file
+  // whose name contains a percent sequence would resolve to a different name
+  // and 404 while validate and build both pass.
+  return `<a class="card" href="${escapeHtml(encodeURI(screenshot.file))}" aria-label="${escapeHtml(screenshot.title)} screenshot" data-card data-title="${escapeHtml(screenshot.title)}" data-platform="${escapeHtml(platformValue)}" data-group="${escapeHtml(filterValue(screenshot.group))}" data-tags="${escapeHtml(tagList)}" data-orientation="${orientation}">
+      <img class="preview" src="${escapeHtml(encodeURI(screenshot.file))}" alt="" loading="lazy">
       <div class="card-body">
         <div class="item-info">
           <div class="item-name">${escapeHtml(screenshot.title)}</div>
@@ -505,6 +508,16 @@ function renderClientScript(): string {
       modalClose.focus({ preventScroll: true });
     });
   });
+
+  const countValue = document.getElementById('results-count-value');
+  const filterControls = Array.from(document.querySelectorAll('.filter-control'));
+
+  function refreshCount() {
+    const visible = cards.filter((card) => getComputedStyle(card).display !== 'none').length;
+    countValue.textContent = visible + (visible === 1 ? ' reference' : ' references');
+  }
+
+  filterControls.forEach((control) => control.addEventListener('change', refreshCount));
 
   modalClose.addEventListener('click', closeModal);
   modal.addEventListener('click', (event) => {

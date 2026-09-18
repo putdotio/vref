@@ -58,6 +58,7 @@ export const COMMAND_FIELDS: Record<string, readonly string[]> = {
     "convertedCount",
     "dryRun",
     "manifestPath",
+    "retainedSources",
     "savedBytes",
     "skippedCount",
   ],
@@ -287,8 +288,18 @@ export const runCli = Effect.fn("vref.cli")(function* (
         result.savedBytes < 0
           ? `${Math.abs(result.savedBytes)} B larger`
           : `${result.savedBytes} B saved`;
+      // A retained original is the one thing the exit code no longer says, so
+      // the human output has to.
+      const retained =
+        result.retainedSources.length > 0
+          ? `; could not remove ${result.retainedSources.join(", ")}`
+          : "";
       yield* Effect.sync(() =>
-        print(args, result, `${verb} ${result.convertedCount} references to webp (${delta})`),
+        print(
+          args,
+          result,
+          `${verb} ${result.convertedCount} references to webp (${delta})${retained}`,
+        ),
       );
       return;
     }

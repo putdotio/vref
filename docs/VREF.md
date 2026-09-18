@@ -19,6 +19,10 @@ Default shape:
   index.html
 ```
 
+Every command that rewrites the manifest stamps `updatedAt`, so the date the
+gallery displays is the date it last changed. A dry run leaves the file byte
+for byte as it was.
+
 `build`, `validate`, `screenshot add`, `convert`, and `manifest add` all take
 `--manifest`, so a repo mid-migration can keep its manifest somewhere else, such
 as `docs/visual/manifest.json`. Screenshot paths resolve relative to whichever
@@ -108,6 +112,8 @@ together, and removes the original unless `--keep-source`. Scope it with
 - A source is removed only when no surviving entry still references it, which matters when `--only` converts one of several entries sharing a file.
 - Two different assets that would resolve to the same `.webp` name fail the run before anything is written, rather than one silently replacing the other. Names are compared the way macOS and Windows compare them, folding case and Unicode normalization, so a gallery behaves the same on every filesystem.
 - A target that another entry already references is refused even under `--force`, since overwriting it would swap that entry's image while its `sizeBytes` and `viewport` still described the old one.
+- `--only` refuses an id that matches no entry, rather than converting nothing and reporting success.
+- An original the run cannot delete is listed in `retainedSources`. The conversion is already durable at that point, so the command still succeeds.
 - `savedBytes` is bytes removed minus bytes written, so it is negative when the tree grows — under `--keep-source` nothing is reclaimed, and re-encoding a lossy jpeg to lossless webp grows it. Pass `--quality` for jpeg sources. A target that `--force` overwrote is credited too, so the figure matches the change on disk.
 
 ## Validate, Build, And Serve

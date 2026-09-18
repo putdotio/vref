@@ -116,6 +116,17 @@ export async function writeManifestDocument(
 }
 
 /**
+ * Stamp the moment a manifest last changed.
+ *
+ * The gallery renders `updatedAt` as its only freshness signal, and nothing
+ * wrote it: every mutation left whatever the manifest was first authored with,
+ * so the published date drifted further from the truth with each screenshot.
+ */
+export function touchUpdatedAt(document: Record<string, unknown>): Record<string, unknown> {
+  return { ...document, updatedAt: new Date().toISOString() };
+}
+
+/**
  * Replace the manifest in one step.
  *
  * A direct write truncates before it writes, so a failure partway — ENOSPC, an

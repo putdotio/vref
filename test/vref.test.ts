@@ -37,6 +37,7 @@ import {
   resolveInsideCwd,
   safeManifestAssetPath,
 } from "../src/path-safety.js";
+import { renderGallery } from "../src/render.js";
 import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
@@ -64,7 +65,8 @@ describe("vref", () => {
     expect(html).toContain("minmax(min(100%, 340px), 1fr)");
     expect(html).toContain('data-orientation="landscape"');
     expect(html).toContain("object-fit: contain");
-    expect(html).toContain("1 reference &middot; Updated May 19, 2026");
+    expect(html).toContain('<span id="results-count-value">1 reference</span>');
+    expect(html).toContain("&middot; Updated May 19, 2026");
     expect(html).toContain(".footer code { color: var(--text-2); font: inherit; }");
     expect(html).toContain(
       ".nav-btn:not(:has(.filter-control:checked)):hover { color: var(--text); background: rgba(255,255,255,0.075); }",
@@ -435,6 +437,69 @@ describe("vref", () => {
           );
           expect(response.status).toBe(200);
           expect(yield* Effect.tryPromise(() => response.text())).toBe("image");
+        }),
+      ),
+    );
+  });
+
+  it("hardens every response and refuses a foreign Host", async () => {
+    const root = await makeFixture();
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: 0 });
+          const asset = `${result.url}screenshots/roku-720p/home.jpg`;
+
+          const ok = yield* Effect.tryPromise(() => fetch(asset));
+          expect(ok.status).toBe(200);
+          expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
+          expect(ok.headers.get("content-security-policy")).toContain("default-src 'self'");
+          expect(ok.headers.get("content-type")).toBe("image/jpeg");
+
+          const missing = yield* Effect.tryPromise(() => fetch(`${result.url}nope.webp`));
+          expect(missing.status).toBe(404);
+          expect(missing.headers.get("x-content-type-options")).toBe("nosniff");
+
+          const head = yield* Effect.tryPromise(() => fetch(asset, { method: "HEAD" }));
+          expect(head.status).toBe(200);
+          expect(head.headers.get("content-length")).toBe("5");
+          expect(yield* Effect.tryPromise(() => head.text())).toBe("");
+
+          const posted = yield* Effect.tryPromise(() => fetch(asset, { method: "POST" }));
+          expect(posted.status).toBe(405);
+          expect(posted.headers.get("allow")).toBe("GET, HEAD");
+
+          const rebound = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "evil.example.com"),
+          );
+          expect(rebound).toBe(403);
+          const named = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "localhost"),
+          );
+          expect(named).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("accepts a request to the url it printed for a noncanonical IPv6 host", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.tryPromise(() => makeFixture());
+          // A client canonicalizes this to [::1] in Host, so comparing the
+          // spelling the user typed would 403 its own printed url.
+          const result = yield* serve({
+            cwd: root,
+            dir: ".vref",
+            host: "0:0:0:0:0:0:0:1",
+            port: 0,
+          });
+          const status = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "[::1]", "::1"),
+          );
+          expect(status).toBe(200);
         }),
       ),
     );
@@ -1401,16 +1466,17 @@ describe("vref webp pipeline", () => {
   it("keeps the original asset with keepSource and honours only", async () => {
     const root = await makeLegacyFixture();
 
-    const result = await convertGallery({
-      cwd: root,
-      dryRun: false,
-      force: false,
-      keepSource: true,
-      manifestPath: ".vref/manifest.json",
-      only: ["missing-id"],
-    });
-    expect(result.convertedCount).toBe(0);
-    expect(result.skippedCount).toBe(2);
+    // An id matching nothing is a mistake, not a request to convert nothing.
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: true,
+        manifestPath: ".vref/manifest.json",
+        only: ["missing-id"],
+      }),
+    ).rejects.toMatchObject({ code: "VREF_UNKNOWN_SELECTOR" });
 
     const kept = await convertGallery({
       cwd: root,
@@ -2090,6 +2156,104 @@ describe("vref webp pipeline", () => {
     await Effect.runPromise(runCli(["describe", "--output", "json", "--fields", "commands"], root));
   });
 
+  it("stamps updatedAt when a command rewrites the manifest", async () => {
+    const root = await makeLegacyFixture();
+    const before = (
+      JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8")) as {
+        updatedAt: string;
+      }
+    ).updatedAt;
+
+    await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    const after = (
+      JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8")) as {
+        updatedAt: string;
+      }
+    ).updatedAt;
+    expect(after).not.toBe(before);
+    expect(Date.parse(after)).toBeGreaterThan(Date.parse(before));
+  });
+
+  it("leaves updatedAt alone on a dry run", async () => {
+    const root = await makeLegacyFixture();
+    const before = await readFile(join(root, ".vref/manifest.json"), "utf8");
+
+    await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "reports a source it could not remove without failing the conversion",
+    async () => {
+      const root = await makeLegacyFixture();
+      // unlink needs write permission on the directory, overwriting an existing
+      // file needs it only on the file. Pre-create the target, then lock the
+      // directory: the conversion completes and only the cleanup fails.
+      await writeFile(join(root, ".vref/screenshots/legacy.webp"), "placeholder");
+      await chmod(join(root, ".vref/screenshots"), 0o555);
+
+      try {
+        const result = await convertGallery({
+          cwd: root,
+          dryRun: false,
+          force: true,
+          keepSource: false,
+          manifestPath: ".vref/manifest.json",
+        });
+
+        expect(result.retainedSources).toEqual(["screenshots/legacy.png"]);
+        expect(result.convertedCount).toBe(1);
+      } finally {
+        await chmod(join(root, ".vref/screenshots"), 0o755);
+      }
+    },
+  );
+
+  it("url-encodes asset paths in the rendered gallery", () => {
+    const html = renderGallery(
+      {
+        version: 1,
+        title: "encoded",
+        description: "percent in a file name",
+        updatedAt: "2026-05-19T13:35:00.000Z",
+        screenshots: [
+          {
+            id: "home",
+            title: "Home",
+            group: "Main",
+            platform: "Web",
+            device: "Chrome",
+            viewport: { width: 10, height: 10 },
+            file: "screenshots/a%41.webp",
+            capturedAt: "2026-05-19T13:35:00.000Z",
+            sizeBytes: 10,
+            tags: [],
+            notes: [],
+          },
+        ],
+      },
+      { manifestLabel: ".vref/manifest.json" },
+    );
+
+    // Left raw, the server's decodeURIComponent would resolve this to aA.webp.
+    expect(html).toContain("screenshots/a%2541.webp");
+    expect(html).not.toContain('href="screenshots/a%41.webp"');
+  });
+
   it("describes exactly the flags the CLI implements", () => {
     const described = describedCommands();
     const mismatches: string[] = [];
@@ -2226,6 +2390,28 @@ describe("path safety", () => {
     }
   });
 });
+
+/** Status code for a GET carrying an explicit Host, which fetch refuses to set. */
+async function statusWithHost(
+  port: number,
+  path: string,
+  host: string,
+  connectTo = "127.0.0.1",
+): Promise<number> {
+  const { request } = await import("node:http");
+
+  return await new Promise<number>((resolve, reject) => {
+    const call = request(
+      { host: connectTo, port, path, method: "GET", headers: { Host: host } },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      },
+    );
+    call.on("error", reject);
+    call.end();
+  });
+}
 
 /** The options block for a command, reaching through an `add` subcommand. */
 function optionsFor(entry: unknown): Record<string, unknown> | undefined {

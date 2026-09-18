@@ -5,6 +5,7 @@ import {
   readManifestDocument,
   screenshotDraftFromJson,
   screenshotFromJson,
+  touchUpdatedAt,
   writeManifestDocument,
   type VrefScreenshotDraft,
 } from "./manifest.js";
@@ -39,7 +40,7 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
   };
 
   if (!options.dryRun) {
-    await writeManifestDocument(paths.manifestPath, nextDocument);
+    await writeManifestDocument(paths.manifestPath, touchUpdatedAt(nextDocument));
   }
 
   return {

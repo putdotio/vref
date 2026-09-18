@@ -64,6 +64,8 @@ export type VrefConvertResult = {
   convertedCount: number;
   dryRun: boolean;
   manifestPath: string;
+  /** Originals the run could not delete. The conversion still succeeded. */
+  retainedSources: string[];
   savedBytes: number;
   skippedCount: number;
 };
