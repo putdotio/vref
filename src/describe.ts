@@ -26,7 +26,7 @@ export function describeCli(): unknown {
       notes: [
         "vref encodes webp only; --quality switches from lossless to lossy webp",
         "a webp source is copied verbatim only when its bytes are really webp and it carries no EXIF orientation; --quality always re-encodes",
-        "viewport defaults to the source pixel size; pass viewport in --json for retina captures",
+        "viewport records the CSS viewport but defaults to the stored pixel size; pass it in --json whenever the device pixel ratio is not 1",
         "manifest entries may still reference legacy .jpg, .jpeg, and .png assets",
       ],
     },

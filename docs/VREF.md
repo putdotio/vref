@@ -62,8 +62,11 @@ and `file` defaults to `screenshots/<id>.webp`:
 }
 ```
 
-Include any derived field in `--json` to override it. Retina captures need that
-for `viewport`, since their pixel dimensions are 2x the CSS viewport. `--dry-run`
+Include any derived field in `--json` to override it. `viewport` is the one that
+usually needs it: the field records the CSS viewport a reference represents,
+while the derived value measures the stored pixels, so the two agree only at a
+device pixel ratio of 1. A retina capture stores 2x and must state its own.
+`--dry-run`
 encodes and validates without writing; `--force` replaces an existing asset,
 unless another manifest entry references it, which is refused outright.
 

@@ -136,8 +136,8 @@ console.log(
 );
 
 async function writeFixture(root: string): Promise<void> {
-  const vrefDirectory = join(root, ".vref");
-  const screenshotDirectory = join(vrefDirectory, "screenshots");
+  const manifestDirectory = join(root, ".vref");
+  const screenshotDirectory = join(manifestDirectory, "screenshots");
   mkdirSync(screenshotDirectory, { recursive: true });
 
   // Real pixels: the convert and screenshot add checks below exercise the
@@ -146,7 +146,7 @@ async function writeFixture(root: string): Promise<void> {
   writeFileSync(join(screenshotDirectory, "home.png"), png);
   writeFileSync(join(root, "capture.png"), png);
   writeFileSync(
-    join(vrefDirectory, "manifest.json"),
+    join(manifestDirectory, "manifest.json"),
     JSON.stringify(
       {
         version: 1,

@@ -40,11 +40,11 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
       continue;
     }
 
-    pending.push(await prepareConversion(paths.vrefDir, screenshot, options));
+    pending.push(await prepareConversion(paths.manifestDir, screenshot, options));
   }
 
   const assets = collectAssets(pending);
-  assertTargetsUnclaimed(paths.vrefDir, assets, pending, document);
+  assertTargetsUnclaimed(paths.manifestDir, assets, pending, document);
 
   // Patch in memory first so the removal decision and the reported delta both
   // see the manifest as it will finally read. Nothing is written on a dry run.
@@ -54,7 +54,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
 
   const removable = options.keepSource
     ? []
-    : [...assets.values()].filter((item) => !isStillReferenced(paths.vrefDir, item, document));
+    : [...assets.values()].filter((item) => !isStillReferenced(paths.manifestDir, item, document));
 
   if (!options.dryRun && pending.length > 0) {
     await writeConvertedAssets(paths, assets, document);
@@ -98,7 +98,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
  * over VREF_ASSET_EXISTS against output from the run that failed.
  */
 async function writeConvertedAssets(
-  paths: { manifestPath: string; vrefDir: string },
+  paths: { manifestPath: string; manifestDir: string },
   assets: Map<string, PendingConversion>,
   document: Record<string, unknown>,
 ): Promise<void> {
@@ -110,7 +110,7 @@ async function writeConvertedAssets(
       // already truncated the target, and only a registered target gets restored.
       const previous = await readIfExists(item.targetAssetPath);
       written.push({ previous, targetAssetPath: item.targetAssetPath });
-      await writeAsset(paths.vrefDir, item.targetAssetPath, item.data);
+      await writeAsset(paths.manifestDir, item.targetAssetPath, item.data);
     }
 
     await writeManifestDocument(paths.manifestPath, document);
@@ -122,7 +122,7 @@ async function writeConvertedAssets(
         if (item.previous === undefined) {
           await rm(item.targetAssetPath, { force: true });
         } else {
-          await writeAsset(paths.vrefDir, item.targetAssetPath, item.previous);
+          await writeAsset(paths.manifestDir, item.targetAssetPath, item.previous);
         }
       } catch {
         // The original failure is the one worth reporting.
@@ -143,7 +143,7 @@ async function writeConvertedAssets(
  * file exists.
  */
 function assertTargetsUnclaimed(
-  vrefDir: string,
+  manifestDir: string,
   assets: Map<string, PendingConversion>,
   pending: PendingConversion[],
   document: Record<string, unknown>,
@@ -161,7 +161,7 @@ function assertTargetsUnclaimed(
       if (converting.has(raw.id)) {
         continue;
       }
-      if (pathKey(join(vrefDir, raw.file.replaceAll("\\", "/"))) === target) {
+      if (pathKey(join(manifestDir, raw.file.replaceAll("\\", "/"))) === target) {
         throw new VrefError(
           "VREF_TARGET_CLAIMED",
           `"${item.conversion.from}" converts to ${item.conversion.to}, which screenshot "${raw.id}" already references`,
@@ -172,7 +172,7 @@ function assertTargetsUnclaimed(
 }
 
 function isStillReferenced(
-  vrefDir: string,
+  manifestDir: string,
   item: PendingConversion,
   document: Record<string, unknown>,
 ): boolean {
@@ -187,7 +187,7 @@ function isStillReferenced(
     (raw) =>
       Predicate.isObject(raw) &&
       typeof raw.file === "string" &&
-      pathKey(join(vrefDir, raw.file.replaceAll("\\", "/"))) === source,
+      pathKey(join(manifestDir, raw.file.replaceAll("\\", "/"))) === source,
   );
 }
 
@@ -207,16 +207,16 @@ async function readIfExists(path: string): Promise<Buffer | undefined> {
 }
 
 async function prepareConversion(
-  vrefDir: string,
+  manifestDir: string,
   screenshot: { file: string; id: string },
   options: ConvertOptions,
 ): Promise<PendingConversion> {
-  const sourceAssetPath = join(vrefDir, screenshot.file);
-  await assertNoSymlinkInPath(vrefDir, sourceAssetPath, "screenshot asset");
+  const sourceAssetPath = join(manifestDir, screenshot.file);
+  await assertNoSymlinkInPath(manifestDir, sourceAssetPath, "screenshot asset");
 
   const targetFile = safeManifestAssetPath(webpSiblingPath(screenshot.file), "screenshot file");
-  const targetAssetPath = join(vrefDir, targetFile);
-  await assertNoSymlinkInPath(vrefDir, targetAssetPath, "screenshot asset");
+  const targetAssetPath = join(manifestDir, targetFile);
+  await assertNoSymlinkInPath(manifestDir, targetAssetPath, "screenshot asset");
 
   const fromBytes = await assetSize(sourceAssetPath, screenshot.file);
   const target = await targetState(targetAssetPath, targetFile);
