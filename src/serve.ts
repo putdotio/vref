@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { isIP } from "node:net";
 import { extname, join, normalize } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Effect } from "effect";
@@ -95,18 +96,31 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
         return;
       }
 
-      response.writeHead(200, { ...securityHeaders(), "content-type": contentType(filePath) });
+      response.writeHead(200, {
+        ...securityHeaders(),
+        "content-type": contentType(filePath),
+        "content-length": String(fileStats.size),
+      });
+
+      // HEAD carries the headers and nothing else.
+      if (request.method === "HEAD") {
+        response.end();
+        return;
+      }
+
       await pipeline(createReadStream(filePath), response);
     } catch (error) {
       if (error instanceof VrefError && error.code === "VREF_BAD_SERVE_PATH") {
-        response.writeHead(400);
+        response.writeHead(400, securityHeaders());
         response.end("Bad request");
         return;
       }
       if (response.headersSent) {
         response.destroy();
       } else {
-        response.writeHead(404);
+        // A missing file lands here rather than in the isFile() branch above,
+        // so this is the common 404 and needs the same headers.
+        response.writeHead(404, securityHeaders());
         response.end("Not found");
       }
     }
@@ -244,11 +258,8 @@ function isAllowedHost(requestHost: string | undefined, boundHost: string): bool
     return false;
   }
 
-  const hostname = requestHost
-    .replace(/:\d+$/u, "")
-    .replace(/^\[|\]$/gu, "")
-    .toLowerCase();
-  const bound = boundHost.replace(/^\[|\]$/gu, "").toLowerCase();
+  const hostname = canonicalHost(requestHost.replace(/:\d+$/u, ""));
+  const bound = canonicalHost(boundHost);
 
   // A server bound to every interface has no single name to check against.
   if (bound === "0.0.0.0" || bound === "::" || bound === "") {
@@ -258,6 +269,27 @@ function isAllowedHost(requestHost: string | undefined, boundHost: string): bool
   const loopback = new Set(["127.0.0.1", "localhost", "::1"]);
 
   return hostname === bound || (loopback.has(bound) && loopback.has(hostname));
+}
+
+/**
+ * Fold a host to one spelling.
+ *
+ * `0:0:0:0:0:0:0:1` and `::1` are the same address, and a URL client sends the
+ * canonical form in Host. Comparing the text the user typed would 403 a request
+ * to the very url `vref serve` printed.
+ */
+function canonicalHost(host: string): string {
+  const bare = host.replace(/^\[|\]$/gu, "").toLowerCase();
+
+  if (isIP(bare) !== 6) {
+    return bare;
+  }
+
+  try {
+    return new URL(`http://[${bare}]`).hostname.replace(/^\[|\]$/gu, "");
+  } catch {
+    return bare;
+  }
 }
 
 function formatHost(host: string): string {

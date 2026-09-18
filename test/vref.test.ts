@@ -459,6 +459,12 @@ describe("vref", () => {
 
           const missing = yield* Effect.tryPromise(() => fetch(`${result.url}nope.webp`));
           expect(missing.status).toBe(404);
+          expect(missing.headers.get("x-content-type-options")).toBe("nosniff");
+
+          const head = yield* Effect.tryPromise(() => fetch(asset, { method: "HEAD" }));
+          expect(head.status).toBe(200);
+          expect(head.headers.get("content-length")).toBe("5");
+          expect(yield* Effect.tryPromise(() => head.text())).toBe("");
 
           const posted = yield* Effect.tryPromise(() => fetch(asset, { method: "POST" }));
           expect(posted.status).toBe(405);
@@ -472,6 +478,28 @@ describe("vref", () => {
             statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "localhost"),
           );
           expect(named).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("accepts a request to the url it printed for a noncanonical IPv6 host", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.tryPromise(() => makeFixture());
+          // A client canonicalizes this to [::1] in Host, so comparing the
+          // spelling the user typed would 403 its own printed url.
+          const result = yield* serve({
+            cwd: root,
+            dir: ".vref",
+            host: "0:0:0:0:0:0:0:1",
+            port: 0,
+          });
+          const status = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "[::1]", "::1"),
+          );
+          expect(status).toBe(200);
         }),
       ),
     );
@@ -2168,29 +2196,32 @@ describe("vref webp pipeline", () => {
     expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
   });
 
-  it("reports a source it could not remove without failing the conversion", async () => {
-    const root = await makeLegacyFixture();
-    // unlink needs write permission on the directory, overwriting an existing
-    // file needs it only on the file. Pre-create the target, then lock the
-    // directory: the conversion completes and only the cleanup fails.
-    await writeFile(join(root, ".vref/screenshots/legacy.webp"), "placeholder");
-    await chmod(join(root, ".vref/screenshots"), 0o555);
+  it.skipIf(process.getuid?.() === 0)(
+    "reports a source it could not remove without failing the conversion",
+    async () => {
+      const root = await makeLegacyFixture();
+      // unlink needs write permission on the directory, overwriting an existing
+      // file needs it only on the file. Pre-create the target, then lock the
+      // directory: the conversion completes and only the cleanup fails.
+      await writeFile(join(root, ".vref/screenshots/legacy.webp"), "placeholder");
+      await chmod(join(root, ".vref/screenshots"), 0o555);
 
-    try {
-      const result = await convertGallery({
-        cwd: root,
-        dryRun: false,
-        force: true,
-        keepSource: false,
-        manifestPath: ".vref/manifest.json",
-      });
+      try {
+        const result = await convertGallery({
+          cwd: root,
+          dryRun: false,
+          force: true,
+          keepSource: false,
+          manifestPath: ".vref/manifest.json",
+        });
 
-      expect(result.retainedSources).toEqual(["screenshots/legacy.png"]);
-      expect(result.convertedCount).toBe(1);
-    } finally {
-      await chmod(join(root, ".vref/screenshots"), 0o755);
-    }
-  });
+        expect(result.retainedSources).toEqual(["screenshots/legacy.png"]);
+        expect(result.convertedCount).toBe(1);
+      } finally {
+        await chmod(join(root, ".vref/screenshots"), 0o755);
+      }
+    },
+  );
 
   it("url-encodes asset paths in the rendered gallery", () => {
     const html = renderGallery(
@@ -2361,12 +2392,17 @@ describe("path safety", () => {
 });
 
 /** Status code for a GET carrying an explicit Host, which fetch refuses to set. */
-async function statusWithHost(port: number, path: string, host: string): Promise<number> {
+async function statusWithHost(
+  port: number,
+  path: string,
+  host: string,
+  connectTo = "127.0.0.1",
+): Promise<number> {
   const { request } = await import("node:http");
 
   return await new Promise<number>((resolve, reject) => {
     const call = request(
-      { host: "127.0.0.1", port, path, method: "GET", headers: { Host: host } },
+      { host: connectTo, port, path, method: "GET", headers: { Host: host } },
       (response) => {
         response.resume();
         resolve(response.statusCode ?? 0);
