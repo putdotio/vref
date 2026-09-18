@@ -22,7 +22,17 @@ Default shape:
 `build`, `validate`, `screenshot add`, `convert`, and `manifest add` all take
 `--manifest`, so a repo mid-migration can keep its manifest somewhere else, such
 as `docs/visual/manifest.json`. Screenshot paths resolve relative to whichever
-directory holds the manifest. `serve` takes `--dir` instead.
+directory holds the manifest.
+
+Point the gallery at that directory too. `--out` is independent of `--manifest`
+and still defaults to `.vref/index.html`, and card `src` values stay relative to
+the manifest, so a relocated manifest with the default output writes an
+`index.html` whose every image is broken:
+
+```bash
+vref build --manifest docs/visual/manifest.json --out docs/visual/index.html
+vref serve --dir docs/visual
+```
 
 ## Add A Screenshot
 
