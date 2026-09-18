@@ -1,6 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
-import { VrefError } from "./errors.js";
+import { VrefError, hasErrorCode } from "./errors.js";
 
 export type WorkspacePaths = {
   cwd: string;
@@ -177,8 +177,4 @@ async function rejectSymlink(path: string, label: string): Promise<void> {
     }
     throw new VrefError("VREF_PATH_CHECK_FAILED", `${label} path could not be checked`);
   }
-}
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

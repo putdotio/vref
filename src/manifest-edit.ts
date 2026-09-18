@@ -1,16 +1,15 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { VrefError } from "./errors.js";
+import { VrefError, hasErrorCode, messageFrom } from "./errors.js";
 import {
   readManifestDocument,
   screenshotDraftFromJson,
   screenshotFromJson,
   touchUpdatedAt,
   writeManifestDocument,
-  type VrefScreenshotDraft,
 } from "./manifest.js";
 import { assertNoSymlinkInPath, workspacePaths } from "./path-safety.js";
-import type { VrefManifestAddResult, VrefScreenshot } from "./types.js";
+import type { VrefManifestAddResult, VrefScreenshot, VrefScreenshotDraft } from "./types.js";
 
 export type AddScreenshotOptions = {
   cwd: string;
@@ -85,18 +84,10 @@ async function screenshotAssetExists(rootPath: string, assetPath: string): Promi
   }
 }
 
-function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
-}
-
 function readRawScreenshots(document: Record<string, unknown>): unknown[] {
   if (Array.isArray(document.screenshots)) {
     return document.screenshots;
   }
 
   throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", "manifest:screenshots must be an array");
-}
-
-function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

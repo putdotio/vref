@@ -22,6 +22,7 @@
 - `pnpm run check`
 - `pnpm run test`
 - `pnpm run verify`
+- `pnpm run coverage`
 - `vref validate --output json`
 - `vref build`
 - `vref build --check --output json`

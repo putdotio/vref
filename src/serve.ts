@@ -5,7 +5,7 @@ import { isIP } from "node:net";
 import { extname, join, normalize } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Effect } from "effect";
-import { VrefError } from "./errors.js";
+import { VrefError, messageFrom } from "./errors.js";
 import { assertNoSymlinkInPath, realPathInside, resolveInsideCwd } from "./path-safety.js";
 
 export type ServeOptions = {
@@ -328,8 +328,4 @@ function normalizeServeError(error: unknown): VrefError {
   return error instanceof VrefError
     ? error
     : new VrefError("VREF_SERVE_START_FAILED", messageFrom(error));
-}
-
-function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -33,6 +33,7 @@
     "build": "vp pack src/index.ts src/cli.ts --dts",
     "check": "vp check .",
     "clean": "rm -rf coverage dist",
+    "coverage": "vp test --coverage",
     "describe": "node ./dist/cli.mjs describe --output json",
     "hooks:install": "git config core.hooksPath .git-hooks",
     "pack:dry": "vp pack src/index.ts src/cli.ts --dts && npm pack --dry-run",
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@types/node": "^26.1.0",
     "@uinaf/skillcheck": "0.5.0",
+    "@vitest/coverage-v8": "4.1.10",
     "typescript": "^7.0.2",
     "vite": "catalog:",
     "vite-plus": "catalog:"

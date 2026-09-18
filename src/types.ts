@@ -70,6 +70,28 @@ export type VrefConvertResult = {
   skippedCount: number;
 };
 
+/**
+ * The authored half of a screenshot entry.
+ *
+ * Written out rather than derived from the Schema: deriving it put
+ * `import { Schema } from "effect"` into the published declarations, so a
+ * consumer of this type had to resolve the same Effect release candidate even
+ * though nothing in the runtime surface touches Effect. `manifest.ts` asserts
+ * the two stay in step.
+ */
+export type VrefScreenshotDraft = {
+  id: string;
+  title: string;
+  group: string;
+  platform: string;
+  device: string;
+  viewport?: VrefViewport;
+  file?: string;
+  capturedAt?: string;
+  tags?: readonly string[];
+  notes?: readonly string[];
+};
+
 export type VrefManifestAddResult = {
   assetExists: boolean;
   dryRun: boolean;

@@ -1,9 +1,9 @@
 import { chmod, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { DateTime, Option, Predicate, Schema } from "effect";
-import { VrefError } from "./errors.js";
+import { VrefError, hasErrorCode, messageFrom } from "./errors.js";
 import { assertSupportedImage, safeManifestAssetPath } from "./path-safety.js";
-import type { VrefManifest, VrefScreenshot } from "./types.js";
+import type { VrefManifest, VrefScreenshot, VrefScreenshotDraft } from "./types.js";
 
 const Identifier = Schema.NonEmptyString.check(
   Schema.isPattern(/^[a-z0-9][a-z0-9._-]*$/u, {
@@ -62,7 +62,15 @@ const VrefScreenshotDraftSchema = Schema.Struct({
   notes: Schema.optionalKey(Schema.Array(NonBlankString)),
 });
 
-export type VrefScreenshotDraft = typeof VrefScreenshotDraftSchema.Type;
+/**
+ * The schema and the hand-written type must describe the same shape. These
+ * assignments fail the build if either side drifts.
+ */
+type SchemaDraft = typeof VrefScreenshotDraftSchema.Type;
+const _draftMatchesSchema: (value: SchemaDraft) => VrefScreenshotDraft = (value) => value;
+const _schemaMatchesDraft: (value: VrefScreenshotDraft) => SchemaDraft = (value) => value;
+void _draftMatchesSchema;
+void _schemaMatchesDraft;
 
 const decodeManifest = Schema.decodeUnknownSync(VrefManifestSchema);
 const decodeScreenshot = Schema.decodeUnknownSync(VrefScreenshotSchema);
@@ -173,10 +181,6 @@ async function existingMode(path: string): Promise<number | undefined> {
   }
 }
 
-function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
-}
-
 export function screenshotFromJson(value: unknown, path: string): VrefScreenshot {
   return screenshotFromUnknown(value, path);
 }
@@ -263,8 +267,4 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
   }
 
   throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path} must be an object`);
-}
-
-function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

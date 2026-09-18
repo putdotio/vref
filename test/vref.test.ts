@@ -31,7 +31,7 @@ import { convertGallery } from "../src/convert.js";
 import { describeCli } from "../src/describe.js";
 import { VrefError } from "../src/errors.js";
 import { encodeWebp } from "../src/image.js";
-import { readManifest, type VrefScreenshotDraft } from "../src/manifest.js";
+import { readManifest } from "../src/manifest.js";
 import {
   assertSupportedImage,
   resolveInsideCwd,
@@ -40,7 +40,7 @@ import {
 import { renderGallery } from "../src/render.js";
 import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { resolveServableFile, serve } from "../src/serve.js";
-import type { VrefManifest } from "../src/types.js";
+import type { VrefManifest, VrefScreenshotDraft } from "../src/types.js";
 
 describe("vref", () => {
   it("builds a gallery from a manifest and screenshots", async () => {

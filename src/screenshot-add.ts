@@ -1,8 +1,9 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { VrefError } from "./errors.js";
+import { stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { VrefError, hasErrorCode, messageFrom } from "./errors.js";
 import { encodeWebp, isWebpFile, WEBP_EXTENSION } from "./image.js";
-import { readManifest, screenshotFromJson, type VrefScreenshotDraft } from "./manifest.js";
+import { readAssetIfExists, pathKey, restoreAsset, writeAsset } from "./asset.js";
+import { readManifest, screenshotFromJson } from "./manifest.js";
 import { addScreenshot } from "./manifest-edit.js";
 import {
   assertNoSymlinkInPath,
@@ -10,7 +11,7 @@ import {
   safeManifestAssetPath,
   workspacePaths,
 } from "./path-safety.js";
-import type { VrefScreenshot, VrefScreenshotAddResult } from "./types.js";
+import type { VrefScreenshot, VrefScreenshotAddResult, VrefScreenshotDraft } from "./types.js";
 
 export type AddScreenshotFromSourceOptions = {
   cwd: string;
@@ -44,8 +45,7 @@ export async function addScreenshotFromSource(
   // swaps the image under that entry while its sizeBytes and viewport keep
   // describing the old one, and validate still passes because the file exists.
   const claimant = manifest.screenshots.find(
-    (screenshot) =>
-      screenshot.file.normalize("NFC").toLowerCase() === file.normalize("NFC").toLowerCase(),
+    (screenshot) => pathKey(screenshot.file) === pathKey(file),
   );
   if (claimant !== undefined) {
     throw new VrefError(
@@ -84,7 +84,7 @@ export async function addScreenshotFromSource(
   // manifest write then fails the asset is rolled back: either removed, or
   // restored to the bytes --force was about to replace. Otherwise a retry hits
   // VREF_ASSET_EXISTS against a file no manifest entry knows about.
-  const replaced = options.dryRun ? undefined : await readReplacedAsset(assetPath);
+  const replaced = options.dryRun ? undefined : await readAssetIfExists(assetPath);
 
   let added;
   try {
@@ -118,13 +118,6 @@ export async function addScreenshotFromSource(
     sourceBytes,
     sourcePath,
   };
-}
-
-export async function writeAsset(rootPath: string, assetPath: string, data: Buffer): Promise<void> {
-  await assertNoSymlinkInPath(rootPath, assetPath, "screenshot asset");
-  await mkdir(dirname(assetPath), { recursive: true });
-  await assertNoSymlinkInPath(rootPath, assetPath, "screenshot asset");
-  await writeFile(assetPath, data);
 }
 
 function targetFile(draft: VrefScreenshotDraft): string {
@@ -171,40 +164,6 @@ async function assertWritableTarget(
   );
 }
 
-async function readReplacedAsset(assetPath: string): Promise<Buffer | undefined> {
-  try {
-    return await readFile(assetPath);
-  } catch (error) {
-    // Only a missing file means there is nothing to put back. Any other read
-    // failure must abort before the target is registered or touched, or the
-    // rollback would delete a file that was already there.
-    if (hasErrorCode(error, "ENOENT")) {
-      return undefined;
-    }
-
-    throw error;
-  }
-}
-
-async function restoreAsset(
-  rootPath: string,
-  assetPath: string,
-  replaced: Buffer | undefined,
-): Promise<void> {
-  try {
-    if (replaced === undefined) {
-      await rm(assetPath, { force: true });
-      return;
-    }
-
-    await writeAsset(rootPath, assetPath, replaced);
-  } catch {
-    // The original failure is the one worth reporting; a failed rollback must
-    // not mask it.
-    return;
-  }
-}
-
 async function sourceSize(sourcePath: string): Promise<number> {
   try {
     const stats = await stat(sourcePath);
@@ -226,12 +185,4 @@ async function capturedAtFromSource(sourcePath: string): Promise<string> {
   } catch {
     return new Date().toISOString();
   }
-}
-
-function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

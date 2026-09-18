@@ -35,3 +35,13 @@ export function errorToJson(error: unknown): {
     },
   };
 }
+
+/** Whether a thrown value is a Node error carrying `code`. */
+export function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+/** The readable half of a thrown value. */
+export function messageFrom(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

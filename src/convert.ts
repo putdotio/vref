@@ -1,10 +1,10 @@
-import { readFile, rm, stat, unlink } from "node:fs/promises";
+import { rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Predicate } from "effect";
-import { VrefError } from "./errors.js";
+import { VrefError, hasErrorCode } from "./errors.js";
 import { encodeWebp, isWebpFile, webpSiblingPath } from "./image.js";
 import { readManifestDocument, touchUpdatedAt, writeManifestDocument } from "./manifest.js";
-import { writeAsset } from "./screenshot-add.js";
+import { readAssetIfExists, pathKey, writeAsset } from "./asset.js";
 import { assertNoSymlinkInPath, safeManifestAssetPath, workspacePaths } from "./path-safety.js";
 import type { VrefConversion, VrefConvertResult } from "./types.js";
 
@@ -162,7 +162,7 @@ async function writeConvertedAssets(
     for (const item of assets.values()) {
       // Registered before the write, not after: a write that fails partway has
       // already truncated the target, and only a registered target gets restored.
-      const previous = await readIfExists(item.targetAssetPath);
+      const previous = await readAssetIfExists(item.targetAssetPath);
       written.push({ previous, targetAssetPath: item.targetAssetPath });
       await writeAsset(paths.manifestDir, item.targetAssetPath, item.data);
     }
@@ -262,21 +262,6 @@ function isStillReferenced(
   );
 }
 
-async function readIfExists(path: string): Promise<Buffer | undefined> {
-  try {
-    return await readFile(path);
-  } catch (error) {
-    // Only a missing file means there is nothing to put back. Any other read
-    // failure must abort before the target is registered or touched, or the
-    // rollback would delete a file that was already there.
-    if (hasErrorCode(error, "ENOENT")) {
-      return undefined;
-    }
-
-    throw error;
-  }
-}
-
 function assertSelectionMatches(
   only: readonly string[] | undefined,
   screenshots: readonly { id: string }[],
@@ -330,18 +315,6 @@ async function planConversion(
 
 function isSelected(only: readonly string[] | undefined, id: string): boolean {
   return only === undefined || only.includes(id);
-}
-
-/**
- * Compare paths the way the filesystem will.
- *
- * macOS and Windows fold case, and macOS also folds Unicode normalization, so
- * `café.png` typed as NFC and as NFD are one file there and two on Linux.
- * `.vref/` is committed and checked out on all of them, so comparisons use the
- * most forgiving form and any ambiguity is refused rather than resolved.
- */
-function pathKey(path: string): string {
-  return path.normalize("NFC").toLowerCase();
 }
 
 /**
@@ -444,8 +417,4 @@ async function targetState(
     // absent would let a dry run promise a plan that overwrites it.
     return { exists: false, size: 0 };
   }
-}
-
-function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

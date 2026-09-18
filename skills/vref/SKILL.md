@@ -60,7 +60,7 @@ manifest entry or add the asset under `.vref/screenshots/`, then validate again:
 
 ## Image Format
 
-References are webp; sources may be `.png`, `.jpg`, or `.webp`. Legacy `.jpg`,
+References are webp; sources may be `.png`, `.jpg`, `.jpeg`, or `.webp`. Legacy `.jpg`,
 `.jpeg`, and `.png` entries still validate, so migrate with
 `vref convert --dry-run --output json` first, then `vref convert`.
 
