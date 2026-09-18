@@ -56,12 +56,13 @@ export async function encodeWebp(options: EncodeWebpOptions): Promise<EncodedIma
 
   const sharp = await loadSharp();
   const source = await readSource(options.sourcePath);
-  const metadata = await readMetadata(sharp, source, options.sourcePath);
 
   // A webp source is already in the target format, so re-encoding it would cost
   // fidelity for nothing. Copy it verbatim unless an explicit quality asks for
   // a re-encode.
   if (isWebpFile(options.sourcePath) && options.quality === undefined) {
+    const metadata = await readMetadata(sharp, source, options.sourcePath);
+
     return { data: source, width: metadata.width, height: metadata.height, reencoded: false };
   }
 
@@ -69,9 +70,16 @@ export async function encodeWebp(options: EncodeWebpOptions): Promise<EncodedIma
     options.quality === undefined ? { lossless: true } : { quality: options.quality };
 
   try {
-    const data = await sharp(source).webp(encodeOptions).toBuffer();
+    // `rotate()` with no angle applies the source's EXIF orientation. Encoding
+    // drops that tag, so without this a portrait capture would be stored
+    // sideways. Dimensions come from the encoder for the same reason: they must
+    // describe the rotated result, not the stored pixel order.
+    const { data, info } = await sharp(source)
+      .rotate()
+      .webp(encodeOptions)
+      .toBuffer({ resolveWithObject: true });
 
-    return { data, width: metadata.width, height: metadata.height, reencoded: true };
+    return { data, width: info.width, height: info.height, reencoded: true };
   } catch (error) {
     throw new VrefError(
       "VREF_IMAGE_ENCODE_FAILED",

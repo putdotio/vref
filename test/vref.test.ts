@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -1252,6 +1253,219 @@ describe("vref webp pipeline", () => {
     expect(kept.convertedCount).toBe(1);
     await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
     await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).resolves.toBeTruthy();
+  });
+
+  it("writes and removes a shared asset once when entries reuse it", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    // Ids are unique, but two entries may legitimately point at one file.
+    document.screenshots.push({ ...document.screenshots[0], id: "legacy-alias" });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    // Both entries are patched, but the file is counted, written, and unlinked once.
+    expect(result.convertedCount).toBe(2);
+    expect(result.conversions.every((item) => item.to === "screenshots/legacy.webp")).toBe(true);
+    expect(result.savedBytes).toBe(
+      (result.conversions[0]?.fromBytes ?? 0) - (result.conversions[0]?.toBytes ?? 0),
+    );
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).rejects.toThrow();
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toMatchObject({ screenshotCount: 3 });
+  });
+
+  it("reports a negative savedBytes when webp is larger than the source", async () => {
+    const root = await makeWebpFixture();
+    const { default: sharp } = await import("sharp");
+    // Seeded xorshift: high-entropy but deterministic, so jpeg cannot compress
+    // it and the lossless webp is reliably larger.
+    const noise = Buffer.alloc(128 * 128 * 3);
+    let seed = 0x9e3779b9;
+    for (let index = 0; index < noise.length; index += 1) {
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      noise[index] = (seed >>> 0) % 256;
+    }
+    // A lossy jpeg re-encoded to lossless webp legitimately grows.
+    const jpeg = await sharp(noise, { raw: { width: 128, height: 128, channels: 3 } })
+      .jpeg({ quality: 60 })
+      .toBuffer();
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    await writeFile(join(root, ".vref/screenshots/photo.jpg"), jpeg);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      JSON.stringify({
+        version: 1,
+        title: "photo",
+        description: "d",
+        updatedAt: "2026-09-18T09:00:00.000Z",
+        screenshots: [
+          {
+            id: "photo",
+            title: "Photo",
+            group: "G",
+            platform: "Web",
+            device: "D",
+            viewport: { width: 128, height: 128 },
+            file: "screenshots/photo.jpg",
+            capturedAt: "2026-09-18T09:00:00.000Z",
+            sizeBytes: jpeg.byteLength,
+            tags: [],
+            notes: [],
+          },
+        ],
+      }),
+    );
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    // Reported honestly rather than clamped: a migration that costs bytes must say so.
+    expect(result.savedBytes).toBeLessThan(0);
+  });
+
+  it("refuses to converge two different assets on one webp target", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    // legacy.png and legacy.jpg are different images that both want legacy.webp.
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: "#ffffff" },
+    })
+      .jpeg()
+      .toBuffer();
+    await writeFile(join(root, ".vref/screenshots/legacy.jpg"), jpeg);
+    document.screenshots.push({
+      ...document.screenshots[0],
+      id: "legacy-jpg",
+      file: "screenshots/legacy.jpg",
+      sizeBytes: jpeg.byteLength,
+    });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow("both convert to");
+
+    // Nothing was written, so neither reference was lost.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/legacy.jpg"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
+  });
+
+  it("keeps a shared source that an unselected entry still references", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    document.screenshots.push({ ...document.screenshots[0], id: "legacy-alias" });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+      only: ["legacy"],
+    });
+
+    expect(result.convertedCount).toBe(1);
+    // legacy-alias still points at the png, so the png must survive and the
+    // manifest must still validate.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toMatchObject({ screenshotCount: 3 });
+  });
+
+  it("applies exif orientation before deriving dimensions", async () => {
+    const root = await makeWebpFixture();
+    const { default: sharp } = await import("sharp");
+    // Stored 64x48 but tagged "rotate 90", so the displayed image is 48x64.
+    const rotated = await sharp({
+      create: { width: 64, height: 48, channels: 3, background: "#09090b" },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    await writeFile(join(root, "rotated.jpg"), rotated);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "rotated.jpg",
+    });
+
+    // Encoding drops the orientation tag, so the pixels must already be upright
+    // and the viewport must describe the upright result.
+    expect(result.screenshot.viewport).toEqual({ width: 48, height: 64 });
+    const written = await sharp(
+      await readFile(join(root, ".vref/screenshots/home.webp")),
+    ).metadata();
+    expect([written.width, written.height]).toEqual([48, 64]);
+  });
+
+  it("rejects an empty --only selector instead of converting everything", async () => {
+    const root = await makeLegacyFixture();
+
+    await expect(
+      Effect.runPromise(runCli(["convert", "--only", "--output", "json"], root)),
+    ).rejects.toThrow("without any value");
+    await expect(
+      Effect.runPromise(runCli(["convert", "--only=,,,", "--output", "json"], root)),
+    ).rejects.toThrow("without any value");
+
+    // The legacy asset is untouched by the rejected runs.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+  });
+
+  it("rolls back a written asset when the manifest append fails", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    // Valid to read, impossible to write back: the append fails only after the
+    // asset has already landed, which is the path rollback exists for.
+    await chmod(join(root, ".vref/manifest.json"), 0o444);
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow();
+
+    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
   });
 
   it("reports a conversion plan without writing on a dry run", async () => {

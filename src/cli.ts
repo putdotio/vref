@@ -259,6 +259,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
       );
       const quality = yield* optionalPositiveInteger(args, "quality");
       const dryRun = getBoolean(args, "dry-run") || getBoolean(args, "check");
+      const only = yield* syncBoundary(() => parseList(args, "only"));
       const result = yield* promiseBoundary(() =>
         convertGallery({
           cwd,
@@ -266,17 +267,17 @@ export const runCli = Effect.fn("vref.cli")(function* (
           force: getBoolean(args, "force"),
           keepSource: getBoolean(args, "keep-source"),
           manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
-          only: parseList(getString(args, "only")),
+          only,
           quality,
         }),
       );
       const verb = result.dryRun ? "would convert" : "converted";
+      const delta =
+        result.savedBytes < 0
+          ? `${Math.abs(result.savedBytes)} B larger`
+          : `${result.savedBytes} B saved`;
       yield* Effect.sync(() =>
-        print(
-          args,
-          result,
-          `${verb} ${result.convertedCount} references to webp (${result.savedBytes} B saved)`,
-        ),
+        print(args, result, `${verb} ${result.convertedCount} references to webp (${delta})`),
       );
       return;
     }
@@ -357,17 +358,32 @@ function getStringFromFlags(flags: Map<string, string | true>, key: string): str
   return undefined;
 }
 
-function parseList(value: string | undefined): string[] | undefined {
-  if (value === undefined) {
+/**
+ * An absent selector means "everything"; a present but empty one is a mistake.
+ *
+ * `--only` with no value, or `--only=,,,`, would otherwise fall through to the
+ * unscoped run and convert every asset — deleting originals the caller was
+ * trying to exclude.
+ */
+function parseList(args: ParsedArgs, key: string): string[] | undefined {
+  const raw = args.flags.get(key);
+  if (raw === undefined) {
     return undefined;
   }
 
-  const entries = value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+  const entries =
+    raw === true
+      ? []
+      : raw
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
 
-  return entries.length > 0 ? entries : undefined;
+  if (entries.length === 0) {
+    throw new VrefError("VREF_EMPTY_SELECTOR", `--${key} was passed without any value`);
+  }
+
+  return entries;
 }
 
 function getBoolean(args: ParsedArgs, key: string): boolean {

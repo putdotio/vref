@@ -132,6 +132,10 @@ export function describeCli(): unknown {
         description:
           "Re-encode non-webp manifest assets to webp and rewrite their manifest entries.",
         mutates: [".vref/manifest.json", ".vref/screenshots/*"],
+        notes: [
+          "savedBytes is a signed delta counted per asset; it goes negative when webp is larger",
+          "re-encoding a lossy jpeg to lossless webp grows it, so pass --quality for jpeg sources",
+        ],
         options: {
           manifest: { type: "string", default: ".vref/manifest.json" },
           only: {

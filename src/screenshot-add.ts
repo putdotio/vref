@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { VrefError } from "./errors.js";
 import { encodeWebp, isWebpFile, WEBP_EXTENSION } from "./image.js";
@@ -65,16 +65,30 @@ export async function addScreenshotFromSource(
     "screenshot",
   ) satisfies VrefScreenshot;
 
+  // The asset has to land before the manifest can reference it, so if the
+  // manifest write then fails the asset is rolled back: either removed, or
+  // restored to the bytes --force was about to replace. Otherwise a retry hits
+  // VREF_ASSET_EXISTS against a file no manifest entry knows about.
+  const replaced = options.dryRun ? undefined : await readReplacedAsset(assetPath);
+
   if (!options.dryRun) {
     await writeAsset(paths.vrefDir, assetPath, encoded.data);
   }
 
-  const added = await addScreenshot({
-    cwd: options.cwd,
-    dryRun: options.dryRun,
-    manifestPath: options.manifestPath,
-    screenshot,
-  });
+  let added;
+  try {
+    added = await addScreenshot({
+      cwd: options.cwd,
+      dryRun: options.dryRun,
+      manifestPath: options.manifestPath,
+      screenshot,
+    });
+  } catch (error) {
+    if (!options.dryRun) {
+      await restoreAsset(paths.vrefDir, assetPath, replaced);
+    }
+    throw error;
+  }
 
   return {
     dryRun: options.dryRun,
@@ -131,6 +145,33 @@ async function assertWritableTarget(
     "VREF_ASSET_EXISTS",
     `screenshot asset already exists, pass --force to replace it: ${file}`,
   );
+}
+
+async function readReplacedAsset(assetPath: string): Promise<Buffer | undefined> {
+  try {
+    return await readFile(assetPath);
+  } catch {
+    return undefined;
+  }
+}
+
+async function restoreAsset(
+  rootPath: string,
+  assetPath: string,
+  replaced: Buffer | undefined,
+): Promise<void> {
+  try {
+    if (replaced === undefined) {
+      await rm(assetPath, { force: true });
+      return;
+    }
+
+    await writeAsset(rootPath, assetPath, replaced);
+  } catch {
+    // The original failure is the one worth reporting; a failed rollback must
+    // not mask it.
+    return;
+  }
 }
 
 async function sourceSize(sourcePath: string): Promise<number> {

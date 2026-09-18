@@ -42,9 +42,14 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     pending.push(await prepareConversion(paths.vrefDir, screenshot, options));
   }
 
+  const assets = collectAssets(pending);
+
   if (!options.dryRun && pending.length > 0) {
-    for (const item of pending) {
+    for (const item of assets.values()) {
       await writeAsset(paths.vrefDir, item.targetAssetPath, item.data);
+    }
+
+    for (const item of pending) {
       patchScreenshot(document, item.conversion);
     }
 
@@ -53,9 +58,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     // Only after the manifest points at the webp files is it safe to drop the
     // originals: a failure before this leaves every entry resolvable.
     if (!options.keepSource) {
-      for (const item of pending) {
-        await unlink(item.sourceAssetPath);
-      }
+      await removeConvertedSources(paths.vrefDir, assets, document);
     }
   }
 
@@ -66,7 +69,13 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     convertedCount: conversions.length,
     dryRun: options.dryRun,
     manifestPath: paths.manifestPath,
-    savedBytes: conversions.reduce((total, item) => total + item.fromBytes - item.toBytes, 0),
+    // Signed, and counted per file rather than per entry. Re-encoding a lossy
+    // jpeg to lossless webp legitimately grows it, and hiding that behind a
+    // clamp would sell a migration that costs bytes as one that saves them.
+    savedBytes: [...assets.values()].reduce(
+      (total, item) => total + item.conversion.fromBytes - item.conversion.toBytes,
+      0,
+    ),
     skippedCount,
   };
 }
@@ -106,6 +115,62 @@ async function prepareConversion(
 
 function isSelected(only: readonly string[] | undefined, id: string): boolean {
   return only === undefined || only.includes(id);
+}
+
+/**
+ * Reduce the per-entry plan to one job per output file.
+ *
+ * Two entries may legitimately name the same asset, in which case they share a
+ * single encode. Two *different* assets landing on one target is another matter:
+ * `home.png` and `home.jpg` both resolve to `home.webp`, and writing them in
+ * sequence would leave one reference silently overwritten by the other. Nothing
+ * has been written yet at this point, so refuse the whole run instead.
+ */
+function collectAssets(pending: PendingConversion[]): Map<string, PendingConversion> {
+  const assets = new Map<string, PendingConversion>();
+
+  for (const item of pending) {
+    const claimed = assets.get(item.targetAssetPath);
+
+    if (claimed === undefined) {
+      assets.set(item.targetAssetPath, item);
+      continue;
+    }
+
+    if (claimed.conversion.from !== item.conversion.from) {
+      throw new VrefError(
+        "VREF_CONVERT_TARGET_COLLISION",
+        `"${claimed.conversion.from}" and "${item.conversion.from}" both convert to ${item.conversion.to}; rename one before converting`,
+      );
+    }
+  }
+
+  return assets;
+}
+
+/**
+ * Delete an original only once nothing points at it any more.
+ *
+ * With `--only`, an unselected entry can still reference a source that a
+ * selected entry just migrated. Deleting it would leave that entry dangling
+ * while the command reported success, so the surviving manifest decides.
+ */
+async function removeConvertedSources(
+  vrefDir: string,
+  assets: Map<string, PendingConversion>,
+  document: Record<string, unknown>,
+): Promise<void> {
+  const referenced = new Set(
+    (Array.isArray(document.screenshots) ? document.screenshots : [])
+      .filter((raw) => Predicate.isObject(raw) && typeof raw.file === "string")
+      .map((raw) => join(vrefDir, (raw as { file: string }).file)),
+  );
+
+  for (const item of assets.values()) {
+    if (!referenced.has(item.sourceAssetPath)) {
+      await unlink(item.sourceAssetPath);
+    }
+  }
 }
 
 function patchScreenshot(document: Record<string, unknown>, conversion: VrefConversion): void {
