@@ -16,20 +16,10 @@ export type OutputEnvelope = {
 export function renderJsonResult(result: unknown, fields: readonly string[] = []): string {
   const selectedResult = selectTopLevelFields(result, fields);
   const untrustedTextPaths = untrustedTextPathsForResult(selectedResult);
-  const envelope: OutputEnvelope = {
-    ok: true,
-    result: selectedResult,
-  };
+  const envelope: OutputEnvelope = { ok: true, result: selectedResult };
 
   if (untrustedTextPaths.length > 0) {
-    return JSON.stringify(
-      {
-        ...envelope,
-        _meta: { agentSafety: { untrustedTextPaths } },
-      },
-      null,
-      2,
-    );
+    envelope._meta = { agentSafety: { untrustedTextPaths } };
   }
 
   return JSON.stringify(envelope, null, 2);

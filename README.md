@@ -81,9 +81,8 @@ vref describe --fields commands,automation
 
 `vref` writes webp only, from `.png`, `.jpg`, `.jpeg`, or `.webp` sources. Encoding is
 lossless unless `--quality 1-100` asks for lossy. A webp source is copied
-verbatim, keeping whatever fidelity it already had — but only when its bytes are
-really webp and it carries no EXIF orientation, since a verbatim copy cannot be
-uprighted.
+verbatim, keeping the fidelity it already had, unless its bytes are not really
+webp or it carries an EXIF orientation a verbatim copy could not apply.
 
 It fills in the derived half of the manifest entry: `sizeBytes` from the encoded
 byte length, `viewport` from the encoded pixel dimensions, `capturedAt` from the

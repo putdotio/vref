@@ -138,7 +138,7 @@ also reports `orphanAssets` — image files in the manifest directory that no
 entry references, usually a screenshot whose entry was deleted. Paths are
 relative to that directory, which `--manifest` chooses and which is not always
 `.vref/`. Orphans never fail the command; nothing else names them.
-`build --check` performs the same no-write validation through the build command.
+`build --check` runs the same checks and writes nothing.
 `build` validates the manifest, confirms screenshot files exist, and writes `.vref/index.html`.
 `serve` serves the `.vref/` directory on `127.0.0.1:4173` by default.
 JSON output is the default when stdout is not a TTY. Use `--fields` with

@@ -28,7 +28,7 @@ export const COMMON_FLAGS = ["output", "fields", "help"] as const;
  * Exported so a test can hold `describe`'s advertised list to what the command
  * actually validates against; the two drifted silently before.
  */
-export const COMMAND_FIELDS: Record<string, readonly string[]> = {
+export const COMMAND_FIELDS = {
   build: ["manifestPath", "outputPath", "screenshotCount", "groupCount", "deviceCount"],
   validate: ["manifestPath", "screenshotCount", "groupCount", "deviceCount", "orphanAssets"],
   serve: ["dir", "host", "port", "url"],
@@ -64,7 +64,7 @@ export const COMMAND_FIELDS: Record<string, readonly string[]> = {
     "savedBytes",
     "skippedCount",
   ],
-};
+} as const satisfies Record<string, readonly string[]>;
 
 /**
  * The flags each command accepts, beside COMMON_FLAGS.
@@ -115,7 +115,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
   switch (args.command) {
     case "build": {
       if (getBoolean(args, "check") || getBoolean(args, "dry-run")) {
-        yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.validate ?? []));
+        yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.validate));
         const result = yield* promiseBoundary(() =>
           validateGallery({
             cwd,
@@ -126,7 +126,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         return;
       }
 
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.build ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.build));
       const result = yield* promiseBoundary(() =>
         buildGallery({
           cwd,
@@ -139,7 +139,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "validate": {
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.validate ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.validate));
       const result = yield* promiseBoundary(() =>
         validateGallery({
           cwd,
@@ -151,7 +151,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "serve": {
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.serve ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.serve));
       const port = yield* optionalPositiveInteger(args, "port");
       return yield* Effect.scoped(
         Effect.gen(function* () {
@@ -175,7 +175,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "describe": {
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.describe ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.describe));
       const result = describeCli();
       yield* Effect.sync(() => print(args, result, "vref: build, validate, serve, describe"));
       return;
@@ -199,7 +199,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         );
       }
 
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.manifest ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.manifest));
       const screenshot = yield* syncBoundary(() => decodeScreenshotJson(rawJson));
       const result = yield* promiseBoundary(() =>
         addScreenshot({
@@ -244,7 +244,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         );
       }
 
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.screenshot ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.screenshot));
       const quality = yield* optionalPositiveInteger(args, "quality");
       const draft = yield* syncBoundary(() => decodeScreenshotDraftJson(rawJson));
       const result = yield* promiseBoundary(() =>
@@ -266,7 +266,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "convert": {
-      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.convert ?? []));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.convert));
       const quality = yield* optionalPositiveInteger(args, "quality");
       const dryRun = getBoolean(args, "dry-run") || getBoolean(args, "check");
       const only = yield* syncBoundary(() => parseList(args, "only"));
