@@ -533,13 +533,20 @@ function optionalPositiveInteger(
 /**
  * Orphans are not a failure, so the human line is the only place they surface
  * outside `--output json`.
+ *
+ * Each path is quoted because it comes from a directory listing, and a filename
+ * may legally carry a newline or an escape sequence. Printed raw, a checked-out
+ * `.webp` could forge a second line of output or drive the terminal.
  */
 function validateSummary(result: VrefValidateResult): string {
   const summary = `validated ${result.screenshotCount} references`;
+  if (result.orphanAssets.length === 0) {
+    return summary;
+  }
 
-  return result.orphanAssets.length === 0
-    ? summary
-    : `${summary}; ${result.orphanAssets.length} unreferenced: ${result.orphanAssets.join(", ")}`;
+  const paths = result.orphanAssets.map((file) => JSON.stringify(file)).join(", ");
+
+  return `${summary}; ${result.orphanAssets.length} unreferenced: ${paths}`;
 }
 
 function print(args: ParsedArgs, result: unknown, human: string): void {

@@ -12,6 +12,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2360,6 +2361,16 @@ describe("orphan assets", () => {
     expect(result.orphanAssets).toEqual([]);
   });
 
+  it("quotes an orphan path so a filename cannot forge terminal output", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/a\nvalidated 0 references.webp"), "hostile");
+
+    const human = await captureConsoleLog(() => Effect.runPromise(runCli(["validate"], root)));
+
+    expect(human.logs).toHaveLength(1);
+    expect(human.logs[0]).toContain(String.raw`"screenshots/a\nvalidated 0 references.webp"`);
+  });
+
   it("surfaces orphans through validate and build --check", async () => {
     const root = await makeFixture();
     await writeFile(join(root, ".vref/screenshots/stale.webp"), "left behind");
@@ -2372,9 +2383,32 @@ describe("orphan assets", () => {
     );
 
     expect(human.logs.join("\n")).toBe(
-      "validated 1 references; 1 unreferenced: screenshots/stale.webp",
+      'validated 1 references; 1 unreferenced: "screenshots/stale.webp"',
     );
     expect(json.logs.join("\n")).toContain('"screenshots/stale.webp"');
+  });
+});
+
+const FOLDS_CASE = foldsCase();
+
+describe("case-variant orphans", () => {
+  // Which answer is right depends on the filesystem, so each half runs where it
+  // can: CI is Linux and case-sensitive, a developer machine usually is not.
+  it.skipIf(!FOLDS_CASE)("treats a case-variant spelling as the referenced file", async () => {
+    const root = await makeFixture("screenshots/roku-720p/HOME.JPG");
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([]);
+  });
+
+  it.skipIf(FOLDS_CASE)("reports a distinct file that only differs by case", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/roku-720p/HOME.JPG"), "a second file");
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual(["screenshots/roku-720p/HOME.JPG"]);
   });
 });
 
@@ -2479,6 +2513,16 @@ describe("path safety", () => {
     }
   });
 });
+
+/** Whether this filesystem treats `a.tmp` and `A.TMP` as one file. */
+function foldsCase(): boolean {
+  const probe = mkdtempSync(join(tmpdir(), "vref-case-"));
+  writeFileSync(join(probe, "a.tmp"), "");
+  const folds = existsSync(join(probe, "A.TMP"));
+  rmSync(probe, { recursive: true, force: true });
+
+  return folds;
+}
 
 /** Status code for a GET carrying an explicit Host, which fetch refuses to set. */
 async function statusWithHost(

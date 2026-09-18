@@ -56,7 +56,7 @@ export async function validateGallery(options: {
   for (const screenshot of manifest.screenshots) {
     const assetPath = join(paths.manifestDir, screenshot.file);
     await assertNoSymlinkInPath(paths.manifestDir, assetPath, "screenshot asset");
-    referenced.add(pathKey(screenshot.file.replaceAll("\\", "/")));
+    referenced.add(screenshot.file.replaceAll("\\", "/"));
     try {
       const assetStats = await stat(assetPath);
       if (!assetStats.isFile()) {
@@ -94,7 +94,7 @@ async function findOrphanAssets(
   manifestDir: string,
   referenced: ReadonlySet<string>,
 ): Promise<string[]> {
-  const orphans: string[] = [];
+  const found: string[] = [];
 
   const walk = async (relativeDir: string): Promise<void> => {
     let entries;
@@ -120,13 +120,39 @@ async function findOrphanAssets(
         continue;
       }
 
-      if (!referenced.has(pathKey(relativePath))) {
-        orphans.push(relativePath);
-      }
+      found.push(relativePath);
     }
   };
 
   await walk("");
 
-  return orphans.sort();
+  const present = new Set(found);
+  const claims = new Map([...referenced].map((file) => [pathKey(file), file] as const));
+
+  return found.filter((file) => isOrphan(file, present, referenced, claims)).sort();
+}
+
+/**
+ * Whether a file on disk is claimed by no entry.
+ *
+ * An exact match settles it. A match that only holds once case and Unicode
+ * normalization are folded is the hard case, and which answer is right depends
+ * on the filesystem: `home.webp` and `HOME.webp` are two files on Linux and one
+ * on macOS. Rather than probe the filesystem, ask whether the entry's own
+ * spelling is in the listing. If it is, the entry means that file and this one
+ * is a genuine leftover; if it is not, this file is what the entry resolves to.
+ */
+function isOrphan(
+  file: string,
+  present: ReadonlySet<string>,
+  referenced: ReadonlySet<string>,
+  claims: ReadonlyMap<string, string>,
+): boolean {
+  if (referenced.has(file)) {
+    return false;
+  }
+
+  const claim = claims.get(pathKey(file));
+
+  return claim === undefined || present.has(claim);
 }
