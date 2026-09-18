@@ -2313,13 +2313,9 @@ describe("vref webp pipeline", () => {
     expect(mismatches).toEqual([]);
   });
 
-  it("requires every manifest field it marks required", () => {
+  it("requires every manifest field it marks required, nested ones included", () => {
     const schema = describeCli() as {
-      manifest: {
-        fields: {
-          screenshots: { items: { fields: Record<string, { required?: boolean }> } };
-        };
-      };
+      manifest: { fields: { screenshots: { items: { fields: DescribedFields } } } };
     };
     const entry = {
       id: "home",
@@ -2337,15 +2333,14 @@ describe("vref webp pipeline", () => {
     expect(decodeScreenshotJson(JSON.stringify(entry)).id).toBe("home");
 
     // describe no longer carries a separate requiredFields list, so `required`
-    // on each field is the only claim — and this is what holds it to the schema.
-    const required = Object.entries(schema.manifest.fields.screenshots.items.fields)
-      .filter(([, field]) => field.required === true)
-      .map(([name]) => name);
-    expect(required.length).toBe(Object.keys(entry).length);
+    // on each field is its only claim. Comparing the marked paths against the
+    // fixture's own shape catches both directions: a field that quietly loses
+    // `required`, and one marked required that an entry never carries.
+    const marked = requiredPaths(schema.manifest.fields.screenshots.items.fields);
+    expect(marked.sort()).toEqual(objectPaths(entry).sort());
 
-    for (const field of required) {
-      const { [field]: _omitted, ...withoutField } = entry as Record<string, unknown>;
-      expect(() => decodeScreenshotJson(JSON.stringify(withoutField))).toThrow(
+    for (const path of marked) {
+      expect(() => decodeScreenshotJson(JSON.stringify(omitPath(entry, path)))).toThrow(
         expect.objectContaining({ code: "VREF_MANIFEST_SCHEMA_INVALID" }),
       );
     }
@@ -2552,6 +2547,39 @@ describe("path safety", () => {
     }
   });
 });
+
+type DescribedFields = Record<string, { required?: boolean; fields?: DescribedFields }>;
+
+/** Dotted paths describe marks `required: true`, descending into nested fields. */
+function requiredPaths(fields: DescribedFields, prefix = ""): string[] {
+  return Object.entries(fields).flatMap(([name, field]) => {
+    const path = prefix === "" ? name : `${prefix}.${name}`;
+    const nested = field.fields === undefined ? [] : requiredPaths(field.fields, path);
+
+    return field.required === true ? [path, ...nested] : nested;
+  });
+}
+
+/** The same paths an object actually carries. Arrays are leaves, as describe treats them. */
+function objectPaths(value: Record<string, unknown>, prefix = ""): string[] {
+  return Object.entries(value).flatMap(([name, nested]) => {
+    const path = prefix === "" ? name : `${prefix}.${name}`;
+    const isPlainObject = typeof nested === "object" && nested !== null && !Array.isArray(nested);
+
+    return isPlainObject ? [path, ...objectPaths(nested as Record<string, unknown>, path)] : [path];
+  });
+}
+
+function omitPath(value: Record<string, unknown>, path: string): Record<string, unknown> {
+  const [head = "", ...rest] = path.split(".");
+  if (rest.length === 0) {
+    const { [head]: _omitted, ...without } = value;
+
+    return without;
+  }
+
+  return { ...value, [head]: omitPath(value[head] as Record<string, unknown>, rest.join(".")) };
+}
 
 /** Whether this filesystem treats `a.tmp` and `A.TMP` as one file. */
 function foldsCase(): boolean {
