@@ -35,7 +35,9 @@ Rules:
 - Do not hand-write `sizeBytes`, `viewport`, or `capturedAt` for `screenshot add`; it fills them in from the encoded image and the source file's mtime. `viewport` records the logical dimensions a reference represents while the default measures stored pixels, so pass it whenever the two differ — a retina capture stores 2x.
 - `convert` rewrites the manifest before deleting any original, skips entries that are already webp, and keeps a source that another entry still references. Pass `--keep-source` to retain the originals.
 - `convert` fails before writing when two different assets would resolve to the same `.webp` name. Rename one and rerun.
-- `--only` rejects an empty value rather than falling back to converting everything.
+- `--only` rejects an empty value rather than falling back to converting everything, and rejects an id matching no entry with `VREF_UNKNOWN_SELECTOR`.
+- `retainedSources` lists originals `convert` could not delete. The conversion succeeded; only the cleanup did not.
+- Do not hand-write `updatedAt`. Every non-dry-run manifest write stamps it.
 - `assetExists` reports whether the referenced screenshot already exists.
 - After updating screenshot files, run `vref validate --output json --fields screenshotCount,groupCount,deviceCount`.
 - Top-level `--fields` values only; do not use dotted paths. `vref describe` lists the accepted values per command.

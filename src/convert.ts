@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Predicate } from "effect";
 import { VrefError } from "./errors.js";
 import { encodeWebp, isWebpFile, webpSiblingPath } from "./image.js";
-import { readManifestDocument, writeManifestDocument } from "./manifest.js";
+import { readManifestDocument, touchUpdatedAt, writeManifestDocument } from "./manifest.js";
 import { writeAsset } from "./screenshot-add.js";
 import { assertNoSymlinkInPath, safeManifestAssetPath, workspacePaths } from "./path-safety.js";
 import type { VrefConversion, VrefConvertResult } from "./types.js";
@@ -16,6 +16,14 @@ export type ConvertOptions = {
   manifestPath: string;
   only?: readonly string[];
   quality?: number;
+};
+
+type ConversionPlan = {
+  conversion: VrefConversion;
+  replacedBytes: number;
+  sourceAssetPath: string;
+  targetAssetPath: string;
+  targetFile: string;
 };
 
 type PendingConversion = {
@@ -31,7 +39,9 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
   await assertNoSymlinkInPath(paths.cwd, paths.manifestPath, "manifest");
   const { document, manifest } = await readManifestDocument(paths.manifestPath);
 
-  const pending: PendingConversion[] = [];
+  assertSelectionMatches(options.only, manifest.screenshots);
+
+  const plans: ConversionPlan[] = [];
   let skippedCount = 0;
 
   for (const screenshot of manifest.screenshots) {
@@ -40,11 +50,43 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
       continue;
     }
 
-    pending.push(await prepareConversion(paths.manifestDir, screenshot, options));
+    plans.push(await planConversion(paths.manifestDir, screenshot, options));
   }
 
+  // Collisions and claimed targets are refused before anything is encoded: a run
+  // that is going to be refused should not pay for the whole encode pass first.
+  assertPlanTargetsFree(paths.manifestDir, plans, document);
+
+  // One encode per output file. Two entries may legitimately name the same
+  // asset, and this is what actually makes them share the work.
+  const encodedByTarget = new Map<string, Buffer>();
+  for (const plan of plans) {
+    const key = pathKey(plan.targetAssetPath);
+    if (!encodedByTarget.has(key)) {
+      const image = await encodeWebp({
+        sourcePath: plan.sourceAssetPath,
+        quality: options.quality,
+      });
+      encodedByTarget.set(key, image.data);
+    }
+  }
+
+  const pending: PendingConversion[] = plans.map((plan) => {
+    const data = encodedByTarget.get(pathKey(plan.targetAssetPath));
+    if (data === undefined) {
+      throw new VrefError("VREF_IMAGE_ENCODE_FAILED", `no encoded image for ${plan.targetFile}`);
+    }
+
+    return {
+      conversion: { ...plan.conversion, toBytes: data.byteLength },
+      data,
+      replacedBytes: plan.replacedBytes,
+      sourceAssetPath: plan.sourceAssetPath,
+      targetAssetPath: plan.targetAssetPath,
+    };
+  });
+
   const assets = collectAssets(pending);
-  assertTargetsUnclaimed(paths.manifestDir, assets, pending, document);
 
   // Patch in memory first so the removal decision and the reported delta both
   // see the manifest as it will finally read. Nothing is written on a dry run.
@@ -52,6 +94,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     patchScreenshot(document, item.conversion);
   }
 
+  const retainedSources: string[] = [];
   const removable = options.keepSource
     ? []
     : [...assets.values()].filter((item) => !isStillReferenced(paths.manifestDir, item, document));
@@ -61,8 +104,16 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
 
     // Only once the manifest points at the webp files is it safe to drop the
     // originals: a failure before this leaves every entry resolvable.
+    //
+    // The conversion is durable by now, so a cleanup failure is reported rather
+    // than thrown — otherwise a read-only source turns a fully successful run
+    // into a non-zero exit, and a retry finds nothing left to do.
     for (const item of removable) {
-      await unlink(item.sourceAssetPath);
+      try {
+        await unlink(item.sourceAssetPath);
+      } catch {
+        retainedSources.push(item.conversion.from);
+      }
     }
   }
 
@@ -71,7 +122,9 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     (total, item) => total + item.conversion.toBytes,
     0,
   );
-  const removedBytes = removable.reduce((total, item) => total + item.conversion.fromBytes, 0);
+  const removedBytes = removable
+    .filter((item) => !retainedSources.includes(item.conversion.from))
+    .reduce((total, item) => total + item.conversion.fromBytes, 0);
   // A target being overwritten frees its old bytes, so they count as reclaimed
   // too; ignoring them made a forced re-run understate the change.
   const replacedBytes = [...assets.values()].reduce((total, item) => total + item.replacedBytes, 0);
@@ -85,6 +138,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     // actually removed. Under --keep-source nothing is reclaimed, so a
     // migration that grows the tree reports a negative number rather than
     // crediting originals that are still sitting on disk.
+    retainedSources,
     savedBytes: removedBytes + replacedBytes - addedBytes,
     skippedCount,
   };
@@ -113,7 +167,7 @@ async function writeConvertedAssets(
       await writeAsset(paths.manifestDir, item.targetAssetPath, item.data);
     }
 
-    await writeManifestDocument(paths.manifestPath, document);
+    await writeManifestDocument(paths.manifestPath, touchUpdatedAt(document));
   } catch (error) {
     // The manifest needs no rollback: writeManifestDocument replaces it
     // atomically, so it is either untouched or fully written.
@@ -142,16 +196,33 @@ async function writeConvertedAssets(
  * viewport keep describing the old one, and `validate` still passes because the
  * file exists.
  */
-function assertTargetsUnclaimed(
+function assertPlanTargetsFree(
   manifestDir: string,
-  assets: Map<string, PendingConversion>,
-  pending: PendingConversion[],
+  plans: ConversionPlan[],
   document: Record<string, unknown>,
 ): void {
-  const converting = new Set(pending.map((item) => item.conversion.id));
+  // `home.png` and `home.jpg` both resolve to `home.webp`, and writing them in
+  // sequence would leave one reference silently overwritten by the other.
+  const byTarget = new Map<string, ConversionPlan>();
+  for (const plan of plans) {
+    const key = pathKey(plan.targetAssetPath);
+    const claimed = byTarget.get(key);
+    if (claimed === undefined) {
+      byTarget.set(key, plan);
+      continue;
+    }
+    if (claimed.conversion.from !== plan.conversion.from) {
+      throw new VrefError(
+        "VREF_CONVERT_TARGET_COLLISION",
+        `"${claimed.conversion.from}" and "${plan.conversion.from}" both convert to ${plan.conversion.to}; rename one before converting`,
+      );
+    }
+  }
+
+  const converting = new Set(plans.map((plan) => plan.conversion.id));
   const screenshots = Array.isArray(document.screenshots) ? document.screenshots : [];
 
-  for (const item of assets.values()) {
+  for (const item of byTarget.values()) {
     const target = pathKey(item.targetAssetPath);
 
     for (const raw of screenshots) {
@@ -206,11 +277,31 @@ async function readIfExists(path: string): Promise<Buffer | undefined> {
   }
 }
 
-async function prepareConversion(
+function assertSelectionMatches(
+  only: readonly string[] | undefined,
+  screenshots: readonly { id: string }[],
+): void {
+  if (only === undefined) {
+    return;
+  }
+
+  // A selector that named nothing converted nothing and still exited 0, so a
+  // typo or a renamed id turned the migration step into a silent no-op.
+  const ids = new Set(screenshots.map((screenshot) => screenshot.id));
+  const unmatched = only.filter((id) => !ids.has(id));
+  if (unmatched.length > 0) {
+    throw new VrefError(
+      "VREF_UNKNOWN_SELECTOR",
+      `--only names no manifest screenshot: ${unmatched.join(", ")}`,
+    );
+  }
+}
+
+async function planConversion(
   manifestDir: string,
   screenshot: { file: string; id: string },
   options: ConvertOptions,
-): Promise<PendingConversion> {
+): Promise<ConversionPlan> {
   const sourceAssetPath = join(manifestDir, screenshot.file);
   await assertNoSymlinkInPath(manifestDir, sourceAssetPath, "screenshot asset");
 
@@ -227,20 +318,13 @@ async function prepareConversion(
     );
   }
 
-  const encoded = await encodeWebp({ sourcePath: sourceAssetPath, quality: options.quality });
-
   return {
-    conversion: {
-      id: screenshot.id,
-      from: screenshot.file,
-      fromBytes,
-      to: targetFile,
-      toBytes: encoded.data.byteLength,
-    },
-    data: encoded.data,
+    // toBytes is unknown until the encode; the encode step fills it in.
+    conversion: { id: screenshot.id, from: screenshot.file, fromBytes, to: targetFile, toBytes: 0 },
     replacedBytes: target.size,
     sourceAssetPath,
     targetAssetPath,
+    targetFile,
   };
 }
 

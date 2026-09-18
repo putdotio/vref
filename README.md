@@ -110,7 +110,8 @@ choice, retina viewports, and what `convert` does to your originals.
 
 ## Manifest
 
-`vref` reads `.vref/manifest.json` by default and writes `.vref/index.html`.
+`vref` reads `.vref/manifest.json` by default and writes `.vref/index.html`. It
+stamps `updatedAt` whenever it rewrites the manifest.
 Screenshot `file` paths are relative to the manifest's directory and must stay
 inside it.
 

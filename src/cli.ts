@@ -58,6 +58,7 @@ export const COMMAND_FIELDS: Record<string, readonly string[]> = {
     "convertedCount",
     "dryRun",
     "manifestPath",
+    "retainedSources",
     "savedBytes",
     "skippedCount",
   ],

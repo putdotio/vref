@@ -169,6 +169,8 @@ export function describeCli(): unknown {
           "Re-encode non-webp manifest assets to webp and rewrite their manifest entries.",
         mutates: [".vref/manifest.json", ".vref/screenshots/*"],
         notes: [
+          "--only rejects an id that matches no manifest screenshot",
+          "retainedSources lists originals the run could not delete; the conversion still succeeded and the exit code stays 0",
           "savedBytes is bytes removed minus bytes written; it is negative when the tree grows, including under --keep-source",
           "re-encoding a lossy jpeg to lossless webp grows it, so pass --quality for jpeg sources",
         ],
@@ -214,6 +216,7 @@ export function describeCli(): unknown {
               "convertedCount",
               "dryRun",
               "manifestPath",
+              "retainedSources",
               "savedBytes",
               "skippedCount",
             ],

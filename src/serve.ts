@@ -55,6 +55,22 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
   }
 
   const server = createServer(async (request, response) => {
+    // A long-running local server is reachable from any page the developer has
+    // open unless it checks who the request thinks it is talking to. The
+    // gallery is UI evidence that may carry account state, so refuse a Host
+    // this server was not started on.
+    if (!isAllowedHost(request.headers.host, options.host)) {
+      response.writeHead(403, securityHeaders());
+      response.end("Forbidden");
+      return;
+    }
+
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.writeHead(405, { ...securityHeaders(), allow: "GET, HEAD" });
+      response.end("Method not allowed");
+      return;
+    }
+
     let decodedPath: string;
     try {
       // Only pathname is read, so the base host is arbitrary. A fixed one keeps
@@ -63,7 +79,7 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
       decodedPath = decodeURIComponent(requestUrl.pathname);
     } catch {
-      response.writeHead(400);
+      response.writeHead(400, securityHeaders());
       response.end("Bad request");
       return;
     }
@@ -74,12 +90,12 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
       const filePath = await resolveServableFile(root, relativePath);
       const fileStats = await stat(filePath);
       if (!fileStats.isFile()) {
-        response.writeHead(404);
+        response.writeHead(404, securityHeaders());
         response.end("Not found");
         return;
       }
 
-      response.writeHead(200, { "content-type": contentType(filePath) });
+      response.writeHead(200, { ...securityHeaders(), "content-type": contentType(filePath) });
       await pipeline(createReadStream(filePath), response);
     } catch (error) {
       if (error instanceof VrefError && error.code === "VREF_BAD_SERVE_PATH") {
@@ -200,6 +216,50 @@ export async function resolveServableFile(root: string, relativePath: string): P
  * `http://::1:4173/` is not a URL. A hostname or IPv4 address never contains a
  * colon, so the colon is the whole test.
  */
+/**
+ * Headers every response carries.
+ *
+ * `nosniff` matters because an unknown extension under the served directory
+ * falls back to application/octet-stream, which a browser would otherwise be
+ * free to reinterpret. The policy keeps a rendered gallery from reaching the
+ * network; it permits inline style and script because that is exactly what
+ * `vref build` emits.
+ */
+function securityHeaders(): Record<string, string> {
+  return {
+    "x-content-type-options": "nosniff",
+    "content-security-policy":
+      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://static.put.io; font-src https://static.put.io; script-src 'self' 'unsafe-inline'",
+  };
+}
+
+/**
+ * Whether a request's Host names the server we actually started.
+ *
+ * Anything else is a name that merely resolves here, which is the shape of a
+ * rebinding request rather than a developer opening the printed url.
+ */
+function isAllowedHost(requestHost: string | undefined, boundHost: string): boolean {
+  if (requestHost === undefined) {
+    return false;
+  }
+
+  const hostname = requestHost
+    .replace(/:\d+$/u, "")
+    .replace(/^\[|\]$/gu, "")
+    .toLowerCase();
+  const bound = boundHost.replace(/^\[|\]$/gu, "").toLowerCase();
+
+  // A server bound to every interface has no single name to check against.
+  if (bound === "0.0.0.0" || bound === "::" || bound === "") {
+    return true;
+  }
+
+  const loopback = new Set(["127.0.0.1", "localhost", "::1"]);
+
+  return hostname === bound || (loopback.has(bound) && loopback.has(hostname));
+}
+
 function formatHost(host: string): string {
   // Defensive only: listen() rejects a bracketed host with ENOTFOUND, so this
   // never runs from the CLI.
