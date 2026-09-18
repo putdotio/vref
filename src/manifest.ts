@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import process from "node:process";
 import { DateTime, Option, Predicate, Schema } from "effect";
 import { VrefError } from "./errors.js";
 import { assertSupportedImage, safeManifestAssetPath } from "./path-safety.js";
@@ -111,7 +112,27 @@ export async function writeManifestDocument(
   path: string,
   document: Record<string, unknown>,
 ): Promise<void> {
-  await writeFile(path, `${JSON.stringify(document, null, 2)}\n`);
+  await writeManifestAtomically(path, `${JSON.stringify(document, null, 2)}\n`);
+}
+
+/**
+ * Replace the manifest in one step.
+ *
+ * A direct write truncates before it writes, so a failure partway — ENOSPC, an
+ * I/O error — leaves the manifest empty or half-written. Writing a sibling and
+ * renaming means the manifest is either the old one or the new one, never a
+ * fragment, and removes any need to keep a copy around to restore.
+ */
+async function writeManifestAtomically(path: string, contents: string): Promise<void> {
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+
+  try {
+    await writeFile(temporaryPath, contents);
+    await rename(temporaryPath, path);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function screenshotFromJson(value: unknown, path: string): VrefScreenshot {

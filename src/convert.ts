@@ -1,4 +1,4 @@
-import { readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Predicate } from "effect";
 import { VrefError } from "./errors.js";
@@ -103,7 +103,6 @@ async function writeConvertedAssets(
   document: Record<string, unknown>,
 ): Promise<void> {
   const written: { previous: Buffer | undefined; targetAssetPath: string }[] = [];
-  const manifestBefore = await readIfExists(paths.manifestPath);
 
   try {
     for (const item of assets.values()) {
@@ -116,14 +115,8 @@ async function writeConvertedAssets(
 
     await writeManifestDocument(paths.manifestPath, document);
   } catch (error) {
-    if (manifestBefore !== undefined) {
-      try {
-        await writeFile(paths.manifestPath, manifestBefore);
-      } catch {
-        // The original failure is the one worth reporting.
-      }
-    }
-
+    // The manifest needs no rollback: writeManifestDocument replaces it
+    // atomically, so it is either untouched or fully written.
     for (const item of written) {
       try {
         if (item.previous === undefined) {
@@ -219,8 +212,8 @@ async function prepareConversion(
   await assertNoSymlinkInPath(vrefDir, targetAssetPath, "screenshot asset");
 
   const fromBytes = await assetSize(sourceAssetPath, screenshot.file);
-  const replacedBytes = await existingSize(targetAssetPath);
-  if (!options.force && replacedBytes > 0) {
+  const target = await targetState(targetAssetPath, targetFile);
+  if (!options.force && target.exists) {
     throw new VrefError(
       "VREF_ASSET_EXISTS",
       `webp asset already exists, pass --force to replace it: ${targetFile}`,
@@ -238,7 +231,7 @@ async function prepareConversion(
       toBytes: encoded.data.byteLength,
     },
     data: encoded.data,
-    replacedBytes,
+    replacedBytes: target.size,
     sourceAssetPath,
     targetAssetPath,
   };
@@ -327,12 +320,35 @@ async function assetSize(assetPath: string, file: string): Promise<number> {
   }
 }
 
-async function existingSize(targetAssetPath: string): Promise<number> {
+/**
+ * Whether a target is already taken, kept separate from how big it is.
+ *
+ * An empty file is still a file: collapsing the two would let a zero-byte
+ * target — exactly what an interrupted write leaves behind — be overwritten
+ * without `--force`. A directory is refused outright, since no `--force` makes
+ * that writable and deferring it turns a clear preflight error into an EISDIR
+ * at write time, after a dry run has already promised the plan works.
+ */
+async function targetState(
+  targetAssetPath: string,
+  targetFile: string,
+): Promise<{ exists: boolean; size: number }> {
   try {
     const stats = await stat(targetAssetPath);
 
-    return stats.isFile() ? stats.size : 0;
-  } catch {
-    return 0;
+    if (!stats.isFile()) {
+      throw new VrefError(
+        "VREF_TARGET_NOT_FILE",
+        `conversion target exists and is not a file: ${targetFile}`,
+      );
+    }
+
+    return { exists: true, size: stats.size };
+  } catch (error) {
+    if (error instanceof VrefError) {
+      throw error;
+    }
+
+    return { exists: false, size: 0 };
   }
 }
