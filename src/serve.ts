@@ -201,6 +201,12 @@ export async function resolveServableFile(root: string, relativePath: string): P
  * colon, so the colon is the whole test.
  */
 function formatHost(host: string): string {
+  // Defensive only: listen() rejects a bracketed host with ENOTFOUND, so this
+  // never runs from the CLI.
+  if (host.startsWith("[") && host.endsWith("]")) {
+    return host;
+  }
+
   return host.includes(":") ? `[${host}]` : host;
 }
 

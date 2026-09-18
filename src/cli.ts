@@ -390,13 +390,17 @@ function getRequiredStringFrom(
   keys: readonly string[],
   fallback: string,
 ): string {
-  for (const key of keys) {
-    if (args.flags.get(key) !== undefined) {
-      return getRequiredString(args, key, fallback);
-    }
+  // Every supplied alias is validated before one is chosen: returning on the
+  // first present key would let `--out x --output-path=` through, which is the
+  // malformed-override case this guard exists to catch.
+  const supplied = keys.filter((key) => args.flags.get(key) !== undefined);
+  for (const key of supplied) {
+    getRequiredString(args, key, fallback);
   }
 
-  return fallback;
+  const [first] = supplied;
+
+  return first === undefined ? fallback : getRequiredString(args, first, fallback);
 }
 
 function getStringFromFlags(flags: Map<string, string | true>, key: string): string | undefined {

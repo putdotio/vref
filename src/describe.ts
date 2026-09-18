@@ -63,7 +63,8 @@ export function describeCli(): unknown {
             type: "boolean",
             flags: ["--check", "--dry-run"],
             default: false,
-            description: "Validate without writing index.html.",
+            description:
+              "Validate without writing index.html. Returns the validate result, so --fields accepts checkValues rather than values.",
           },
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
           fields: {
@@ -71,6 +72,7 @@ export function describeCli(): unknown {
             type: "string",
             scope: "top-level result fields",
             values: ["manifestPath", "outputPath", "screenshotCount", "groupCount", "deviceCount"],
+            checkValues: ["manifestPath", "screenshotCount", "groupCount", "deviceCount"],
           },
           help: { type: "boolean", flags: ["--help"], default: false },
         },

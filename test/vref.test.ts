@@ -2048,6 +2048,17 @@ describe("vref webp pipeline", () => {
     }
   });
 
+  it("refuses a malformed output-path alias even when the other is well formed", async () => {
+    const root = await makeFixture();
+
+    await expect(
+      Effect.runPromise(
+        runCli(["build", "--out", ".vref/index.html", "--output-path=", "--output", "json"], root),
+      ),
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
+    await expect(stat(join(root, ".vref/index.html"))).rejects.toThrow();
+  });
+
   it("refuses a path flag that was passed without a value", async () => {
     const root = await makeFixture();
 
@@ -2124,6 +2135,14 @@ describe("vref webp pipeline", () => {
       }
     }
 
+    // `build --check` returns a validate result, so its accepted --fields set
+    // narrows. Advertising only the build set would tell an agent outputPath is
+    // accepted when the check branch rejects it.
+    const buildOptions = optionsFor(schema.commands.build);
+    const checkValues = (buildOptions?.fields as { checkValues?: readonly string[] } | undefined)
+      ?.checkValues;
+    expect([...(checkValues ?? [])].sort()).toEqual([...(COMMAND_FIELDS.validate ?? [])].sort());
+
     expect(mismatches).toEqual([]);
   });
 
@@ -2176,22 +2195,22 @@ describe("path safety", () => {
   });
 
   it("rejects an output path with a control character", () => {
-    expect(() => resolveInsideCwd("/tmp/vref", "out\u0001.html", "output")).toThrow(
+    expect(() => resolveInsideCwd(tmpdir(), "out\u0001.html", "output")).toThrow(
       expect.objectContaining({ code: "VREF_UNSAFE_PATH" }),
     );
   });
 
   it("rejects an output path that escapes the working tree", () => {
-    expect(() => resolveInsideCwd("/tmp/vref", "../escape.html", "output")).toThrow(
-      expect.objectContaining({ code: "VREF_PATH_OUTSIDE_CWD" }),
-    );
+    expect(() =>
+      resolveInsideCwd(join(tmpdir(), "vref-resolve"), "../escape.html", "output"),
+    ).toThrow(expect.objectContaining({ code: "VREF_PATH_OUTSIDE_CWD" }));
   });
 
   it("resolves an output path inside the working tree", () => {
-    expect(resolveInsideCwd("/tmp/vref", ".vref/index.html", "output")).toBe(
-      "/tmp/vref/.vref/index.html",
-    );
-    expect(resolveInsideCwd("/tmp/vref", ".", "output")).toBe("/tmp/vref");
+    const cwd = join(tmpdir(), "vref-resolve");
+
+    expect(resolveInsideCwd(cwd, ".vref/index.html", "output")).toBe(join(cwd, ".vref/index.html"));
+    expect(resolveInsideCwd(cwd, ".", "output")).toBe(cwd);
   });
 
   it("accepts every supported image extension and rejects the rest", () => {
