@@ -115,7 +115,8 @@ export function describeCli(): unknown {
               type: "boolean",
               flags: ["--force"],
               default: false,
-              description: "Replace an existing screenshot asset.",
+              description:
+                "Replace an existing screenshot asset. Refused when another manifest entry references it.",
             },
             dryRun: {
               type: "boolean",
@@ -159,7 +160,8 @@ export function describeCli(): unknown {
             type: "boolean",
             flags: ["--force"],
             default: false,
-            description: "Replace an existing webp asset.",
+            description:
+              "Replace an existing webp asset. Refused when an entry outside the conversion references it.",
           },
           dryRun: {
             type: "boolean",

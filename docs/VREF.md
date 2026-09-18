@@ -64,7 +64,8 @@ and `file` defaults to `screenshots/<id>.webp`:
 
 Include any derived field in `--json` to override it. Retina captures need that
 for `viewport`, since their pixel dimensions are 2x the CSS viewport. `--dry-run`
-encodes and validates without writing; `--force` replaces an existing asset.
+encodes and validates without writing; `--force` replaces an existing asset,
+unless another manifest entry references it, which is refused outright.
 
 For an entry whose file you are placing yourself, `vref manifest add --json
 '<entry>'` appends one schema-checked entry and touches nothing else. It reports
@@ -81,8 +82,9 @@ UI captures it is also the smaller option: a 1920x1080 Roku splash goes from
 softens text edges. Use `--quality` for photo-heavy captures, where lossy is
 substantially smaller.
 
-A webp source is copied verbatim rather than re-encoded. That shortcut needs the
-bytes to really be webp — the extension alone does not qualify — and is skipped
+A `.webp` source is copied verbatim rather than re-encoded. That shortcut needs
+the name and the bytes to agree — webp content under a `.png` name still goes
+through the encoder, which is what scrubs its metadata — and is skipped
 when the source carries an EXIF orientation tag or when `--quality` asks for a
 re-encode. Everything else is auto-oriented before encoding, so a portrait
 capture is stored upright and its `viewport` describes the upright result.

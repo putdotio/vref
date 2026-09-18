@@ -1202,6 +1202,34 @@ describe("vref webp pipeline", () => {
     expect(written.subarray(8, 12).toString("latin1")).toBe("WEBP");
   });
 
+  it("re-encodes webp bytes supplied under a png name", async () => {
+    const root = await makeWebpFixture();
+    const { default: sharp } = await import("sharp");
+    // Real webp content, but a .png name. The safety rules promise png and jpg
+    // sources are re-encoded, and that re-encode is what strips metadata.
+    const webp = await sharp({
+      create: { width: 32, height: 32, channels: 3, background: "#09090b" },
+    })
+      .webp({ lossless: true })
+      .withExif({ IFD0: { Copyright: "PRIVATE" } })
+      .toBuffer();
+    expect(webp.includes(Buffer.from("PRIVATE"))).toBe(true);
+    await writeFile(join(root, "mislabelled.png"), webp);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "mislabelled.png",
+    });
+
+    const written = await readFile(join(root, ".vref/screenshots/home.webp"));
+    expect(result.reencoded).toBe(true);
+    expect(written.includes(Buffer.from("PRIVATE"))).toBe(false);
+  });
+
   it("re-encodes a webp source that carries an orientation tag", async () => {
     const root = await makeWebpFixture();
     const { default: sharp } = await import("sharp");

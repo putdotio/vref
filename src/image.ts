@@ -59,12 +59,21 @@ export async function encodeWebp(options: EncodeWebpOptions): Promise<EncodedIma
   const metadata = await readMetadata(sharp, source, options.sourcePath);
 
   // A webp source is already in the target format, so re-encoding it would cost
-  // fidelity for nothing. Copy it verbatim — but only when the bytes really are
-  // webp, and only when there is no orientation tag to apply, since a verbatim
-  // copy cannot be rotated and would leave the image stored sideways. The
-  // extension is not evidence: a png renamed to .webp would otherwise be filed
-  // as webp and served with the wrong content type.
-  if (metadata.format === "webp" && options.quality === undefined && !metadata.rotated) {
+  // fidelity for nothing. Copy it verbatim only when name and bytes agree, and
+  // only when there is no orientation tag to apply, since a verbatim copy
+  // cannot be rotated and would leave the image stored sideways.
+  //
+  // Both halves matter. The extension alone is not evidence: a png renamed to
+  // .webp would be filed as webp and served with the wrong content type. The
+  // format alone is not either: webp bytes under a .png name would skip the
+  // encoder, and the safety rules promise png and jpg sources are re-encoded,
+  // which is what strips their metadata.
+  if (
+    isWebpFile(options.sourcePath) &&
+    metadata.format === "webp" &&
+    options.quality === undefined &&
+    !metadata.rotated
+  ) {
     return { data: source, width: metadata.width, height: metadata.height, reencoded: false };
   }
 
