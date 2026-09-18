@@ -55,7 +55,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         const result = yield* promiseBoundary(() =>
           validateGallery({
             cwd,
-            manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+            manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
           }),
         );
         yield* Effect.sync(() =>
@@ -76,7 +76,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
       const result = yield* promiseBoundary(() =>
         buildGallery({
           cwd,
-          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
           outputPath: getString(args, "out") ?? getString(args, "output-path") ?? DEFAULT_OUTPUT,
         }),
       );
@@ -91,7 +91,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
       const result = yield* promiseBoundary(() =>
         validateGallery({
           cwd,
-          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
         }),
       );
       yield* Effect.sync(() =>
@@ -175,7 +175,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         addScreenshot({
           cwd,
           dryRun: getBoolean(args, "dry-run") || getBoolean(args, "check"),
-          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
           screenshot,
         }),
       );
@@ -234,7 +234,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
           draft,
           dryRun: getBoolean(args, "dry-run") || getBoolean(args, "check"),
           force: getBoolean(args, "force"),
-          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
           quality,
           sourcePath,
         }),
@@ -266,7 +266,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
           dryRun,
           force: getBoolean(args, "force"),
           keepSource: getBoolean(args, "keep-source"),
-          manifestPath: getString(args, "manifest") ?? DEFAULT_MANIFEST,
+          manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
           only,
           quality,
         }),
@@ -346,6 +346,29 @@ function getString(args: ParsedArgs, key: string): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * A flag that is present must carry a value.
+ *
+ * `--manifest` with nothing after it, or `--manifest=` from an automation
+ * variable that expanded to nothing, would otherwise fall through to the
+ * default path — pointing a destructive command at the default gallery
+ * instead of rejecting a malformed command.
+ */
+function getRequiredString(args: ParsedArgs, key: string, fallback: string): string {
+  const value = args.flags.get(key);
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const resolved = getString(args, key);
+  if (resolved === undefined) {
+    throw new VrefError("VREF_EMPTY_FLAG", `--${key} was passed without a value`);
+  }
+
+  return resolved;
 }
 
 function getStringFromFlags(flags: Map<string, string | true>, key: string): string | undefined {

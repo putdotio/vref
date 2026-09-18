@@ -71,12 +71,15 @@ export async function addScreenshotFromSource(
   // VREF_ASSET_EXISTS against a file no manifest entry knows about.
   const replaced = options.dryRun ? undefined : await readReplacedAsset(assetPath);
 
-  if (!options.dryRun) {
-    await writeAsset(paths.vrefDir, assetPath, encoded.data);
-  }
-
   let added;
   try {
+    // The write is inside the rollback too: --force truncates an existing asset
+    // before writing it, so a failure mid-write would otherwise leave a corrupt
+    // file that manifest entries still point at.
+    if (!options.dryRun) {
+      await writeAsset(paths.vrefDir, assetPath, encoded.data);
+    }
+
     added = await addScreenshot({
       cwd: options.cwd,
       dryRun: options.dryRun,

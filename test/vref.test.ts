@@ -1487,6 +1487,86 @@ describe("vref webp pipeline", () => {
     await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
   });
 
+  it("does not credit retained originals as saved bytes", async () => {
+    const root = await makeLegacyFixture();
+
+    const kept = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: true,
+      manifestPath: ".vref/manifest.json",
+    });
+    const removed = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    // Nothing is reclaimed under --keep-source, so the tree only grows.
+    expect(kept.savedBytes).toBe(-(kept.conversions[0]?.toBytes ?? 0));
+    expect(kept.savedBytes).toBeLessThan(0);
+    expect(removed.savedBytes).toBeGreaterThan(kept.savedBytes);
+  });
+
+  it("restores the tree when the conversion transaction fails", async () => {
+    const root = await makeLegacyFixture();
+    const before = await readFile(join(root, ".vref/manifest.json"), "utf8");
+    // Readable for the plan, unwritable for the commit.
+    await chmod(join(root, ".vref/manifest.json"), 0o444);
+
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow();
+
+    // No half-written webp is left for a later run to trip over.
+    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
+  });
+
+  it("restores the replaced asset when a forced add fails", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    const original = Buffer.from("original bytes");
+    await writeFile(join(root, ".vref/screenshots/home.webp"), original);
+    await chmod(join(root, ".vref/manifest.json"), 0o444);
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: true,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow();
+
+    const after = await readFile(join(root, ".vref/screenshots/home.webp"));
+    expect(after.equals(original)).toBe(true);
+  });
+
+  it("rejects a --manifest flag passed without a value", async () => {
+    const root = await makeLegacyFixture();
+
+    await expect(
+      Effect.runPromise(runCli(["convert", "--manifest", "--output", "json"], root)),
+    ).rejects.toThrow("without a value");
+    await expect(
+      Effect.runPromise(runCli(["validate", "--manifest=", "--output", "json"], root)),
+    ).rejects.toThrow("without a value");
+  });
+
   it("runs screenshot add and convert through the cli with json output", async () => {
     const root = await makeWebpFixture();
     await makePng(join(root, "capture.png"), 32, 32);

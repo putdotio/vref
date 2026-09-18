@@ -1,4 +1,4 @@
-import { stat, unlink } from "node:fs/promises";
+import { readFile, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Predicate } from "effect";
 import { VrefError } from "./errors.js";
@@ -44,40 +44,107 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
 
   const assets = collectAssets(pending);
 
+  // Patch in memory first so the removal decision and the reported delta both
+  // see the manifest as it will finally read. Nothing is written on a dry run.
+  for (const item of pending) {
+    patchScreenshot(document, item.conversion);
+  }
+
+  const removable = options.keepSource
+    ? []
+    : [...assets.values()].filter((item) => !isStillReferenced(paths.vrefDir, item, document));
+
   if (!options.dryRun && pending.length > 0) {
-    for (const item of assets.values()) {
-      await writeAsset(paths.vrefDir, item.targetAssetPath, item.data);
-    }
+    await writeConvertedAssets(paths, assets, document);
 
-    for (const item of pending) {
-      patchScreenshot(document, item.conversion);
-    }
-
-    await writeManifestDocument(paths.manifestPath, document);
-
-    // Only after the manifest points at the webp files is it safe to drop the
+    // Only once the manifest points at the webp files is it safe to drop the
     // originals: a failure before this leaves every entry resolvable.
-    if (!options.keepSource) {
-      await removeConvertedSources(paths.vrefDir, assets, document);
+    for (const item of removable) {
+      await unlink(item.sourceAssetPath);
     }
   }
 
   const conversions = pending.map((item) => item.conversion);
+  const addedBytes = [...assets.values()].reduce(
+    (total, item) => total + item.conversion.toBytes,
+    0,
+  );
+  const removedBytes = removable.reduce((total, item) => total + item.conversion.fromBytes, 0);
 
   return {
     conversions,
     convertedCount: conversions.length,
     dryRun: options.dryRun,
     manifestPath: paths.manifestPath,
-    // Signed, and counted per file rather than per entry. Re-encoding a lossy
-    // jpeg to lossless webp legitimately grows it, and hiding that behind a
-    // clamp would sell a migration that costs bytes as one that saves them.
-    savedBytes: [...assets.values()].reduce(
-      (total, item) => total + item.conversion.fromBytes - item.conversion.toBytes,
-      0,
-    ),
+    // Bytes reclaimed minus bytes added, counted only over files that are
+    // actually removed. Under --keep-source nothing is reclaimed, so a
+    // migration that grows the tree reports a negative number rather than
+    // crediting originals that are still sitting on disk.
+    savedBytes: removedBytes - addedBytes,
     skippedCount,
   };
+}
+
+/**
+ * Write every converted asset and the manifest, or leave the tree as it was.
+ *
+ * A failure partway through — ENOSPC, a read-only manifest — would otherwise
+ * strand webp files that no manifest entry references, so a later retry trips
+ * over VREF_ASSET_EXISTS against output from the run that failed.
+ */
+async function writeConvertedAssets(
+  paths: { manifestPath: string; vrefDir: string },
+  assets: Map<string, PendingConversion>,
+  document: Record<string, unknown>,
+): Promise<void> {
+  const written: { previous: Buffer | undefined; targetAssetPath: string }[] = [];
+
+  try {
+    for (const item of assets.values()) {
+      const previous = await readIfExists(item.targetAssetPath);
+      await writeAsset(paths.vrefDir, item.targetAssetPath, item.data);
+      written.push({ previous, targetAssetPath: item.targetAssetPath });
+    }
+
+    await writeManifestDocument(paths.manifestPath, document);
+  } catch (error) {
+    for (const item of written) {
+      try {
+        if (item.previous === undefined) {
+          await rm(item.targetAssetPath, { force: true });
+        } else {
+          await writeAsset(paths.vrefDir, item.targetAssetPath, item.previous);
+        }
+      } catch {
+        // The original failure is the one worth reporting.
+      }
+    }
+
+    throw error;
+  }
+}
+
+function isStillReferenced(
+  vrefDir: string,
+  item: PendingConversion,
+  document: Record<string, unknown>,
+): boolean {
+  const screenshots = Array.isArray(document.screenshots) ? document.screenshots : [];
+
+  return screenshots.some(
+    (raw) =>
+      Predicate.isObject(raw) &&
+      typeof raw.file === "string" &&
+      join(vrefDir, raw.file) === item.sourceAssetPath,
+  );
+}
+
+async function readIfExists(path: string): Promise<Buffer | undefined> {
+  try {
+    return await readFile(path);
+  } catch {
+    return undefined;
+  }
 }
 
 async function prepareConversion(
@@ -146,31 +213,6 @@ function collectAssets(pending: PendingConversion[]): Map<string, PendingConvers
   }
 
   return assets;
-}
-
-/**
- * Delete an original only once nothing points at it any more.
- *
- * With `--only`, an unselected entry can still reference a source that a
- * selected entry just migrated. Deleting it would leave that entry dangling
- * while the command reported success, so the surviving manifest decides.
- */
-async function removeConvertedSources(
-  vrefDir: string,
-  assets: Map<string, PendingConversion>,
-  document: Record<string, unknown>,
-): Promise<void> {
-  const referenced = new Set(
-    (Array.isArray(document.screenshots) ? document.screenshots : [])
-      .filter((raw) => Predicate.isObject(raw) && typeof raw.file === "string")
-      .map((raw) => join(vrefDir, (raw as { file: string }).file)),
-  );
-
-  for (const item of assets.values()) {
-    if (!referenced.has(item.sourceAssetPath)) {
-      await unlink(item.sourceAssetPath);
-    }
-  }
 }
 
 function patchScreenshot(document: Record<string, unknown>, conversion: VrefConversion): void {
