@@ -450,7 +450,15 @@ function optionalPositiveInteger(
   args: ParsedArgs,
   key: string,
 ): Effect.Effect<number | undefined, VrefError> {
+  const raw = args.flags.get(key);
   const value = getString(args, key);
+
+  // A present flag must carry a value. `--quality` alone would otherwise fall
+  // through to a lossless encode, silently ignoring a request for lossy output.
+  if (raw !== undefined && value === undefined) {
+    return Effect.fail(new VrefError("VREF_EMPTY_FLAG", `--${key} was passed without a value`));
+  }
+
   if (value === undefined) {
     return Effect.succeed(undefined);
   }

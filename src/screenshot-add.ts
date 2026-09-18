@@ -39,6 +39,21 @@ export async function addScreenshotFromSource(
   }
 
   const file = targetFile(options.draft);
+
+  // Even --force must not take a file another entry points at: overwriting it
+  // swaps the image under that entry while its sizeBytes and viewport keep
+  // describing the old one, and validate still passes because the file exists.
+  const claimant = manifest.screenshots.find(
+    (screenshot) =>
+      screenshot.file.normalize("NFC").toLowerCase() === file.normalize("NFC").toLowerCase(),
+  );
+  if (claimant !== undefined) {
+    throw new VrefError(
+      "VREF_ASSET_CLAIMED",
+      `screenshot "${claimant.id}" already references ${file}`,
+    );
+  }
+
   const assetPath = join(paths.vrefDir, file);
   await assertNoSymlinkInPath(paths.vrefDir, assetPath, "screenshot asset");
   await assertWritableTarget(assetPath, file, options.force);
@@ -140,8 +155,14 @@ async function assertWritableTarget(
 
   try {
     await stat(assetPath);
-  } catch {
-    return;
+  } catch (error) {
+    // Only a missing asset leaves the path free; any other failure must not be
+    // read as permission to overwrite.
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+
+    throw error;
   }
 
   throw new VrefError(
@@ -153,8 +174,15 @@ async function assertWritableTarget(
 async function readReplacedAsset(assetPath: string): Promise<Buffer | undefined> {
   try {
     return await readFile(assetPath);
-  } catch {
-    return undefined;
+  } catch (error) {
+    // Only a missing file means there is nothing to put back. Any other read
+    // failure must abort before the target is registered or touched, or the
+    // rollback would delete a file that was already there.
+    if (hasErrorCode(error, "ENOENT")) {
+      return undefined;
+    }
+
+    throw error;
   }
 }
 
@@ -202,4 +230,8 @@ async function capturedAtFromSource(sourcePath: string): Promise<string> {
 
 function messageFrom(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

@@ -27,6 +27,13 @@ vref validate --output json --fields screenshotCount,groupCount,deviceCount
 vref screenshot add ./dist/tmp/home.png --json '{"id":"home","title":"Home","group":"Main pages","platform":"Web","device":"Chrome 1440","tags":["home"],"notes":["Home grid."]}' --dry-run --output json
 ```
 
+The dry run writes nothing. Rerun it without `--dry-run` once the preview shows
+the intended id and file path, otherwise the capture is never added:
+
+```bash
+vref screenshot add ./dist/tmp/home.png --json '{"id":"home","title":"Home","group":"Main pages","platform":"Web","device":"Chrome 1440","tags":["home"],"notes":["Home grid."]}' --output json
+```
+
 8. Rebuild the gallery:
 
 ```bash
@@ -57,11 +64,11 @@ References are webp; sources may be `.png`, `.jpg`, or `.webp`. Legacy `.jpg`,
 `.jpeg`, and `.png` entries still validate, so migrate with
 `vref convert --dry-run --output json` first, then `vref convert`.
 
-Do not hand-write `file`, `sizeBytes`, `viewport`, or `capturedAt` for
-`screenshot add`; it fills them in — `sizeBytes` and `viewport` from the encoded
-image, `capturedAt` from the source file's mtime, `file` from the id — and a
-hand-typed value drifts from the file. The one exception is a retina capture,
-whose pixel dimensions are 2x the CSS viewport: pass `viewport` in `--json`.
+Do not hand-write `sizeBytes` or `capturedAt` for `screenshot add`; it fills them
+in from the encoded image and the source file's mtime, and a hand-typed value
+drifts from the file. Two fields are worth setting deliberately: `viewport` for a
+retina capture, whose pixel dimensions are 2x the CSS viewport, and `file` when
+the gallery needs a nested path instead of the default `screenshots/<id>.webp`.
 
 ## Command Notes
 

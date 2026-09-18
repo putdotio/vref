@@ -25,7 +25,7 @@ export function describeCli(): unknown {
       encoder: "sharp",
       notes: [
         "vref encodes webp only; --quality switches from lossless to lossy webp",
-        "webp sources are copied verbatim unless --quality forces a re-encode",
+        "a webp source is copied verbatim only when its bytes are really webp and it carries no EXIF orientation; --quality always re-encodes",
         "viewport defaults to the source pixel size; pass viewport in --json for retina captures",
         "manifest entries may still reference legacy .jpg, .jpeg, and .png assets",
       ],
@@ -115,7 +115,8 @@ export function describeCli(): unknown {
               type: "boolean",
               flags: ["--force"],
               default: false,
-              description: "Replace an existing screenshot asset.",
+              description:
+                "Replace an existing screenshot asset. Refused when another manifest entry references it.",
             },
             dryRun: {
               type: "boolean",
@@ -159,7 +160,8 @@ export function describeCli(): unknown {
             type: "boolean",
             flags: ["--force"],
             default: false,
-            description: "Replace an existing webp asset.",
+            description:
+              "Replace an existing webp asset. Refused when an entry outside the conversion references it.",
           },
           dryRun: {
             type: "boolean",
