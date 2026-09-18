@@ -33,6 +33,7 @@ import { describeCli } from "../src/describe.js";
 import { VREF_ERROR_CODES } from "../src/error-codes.js";
 import { VrefError } from "../src/errors.js";
 import { encodeWebp } from "../src/image.js";
+import { decodeScreenshotJson } from "../src/manifest-edit.js";
 import { readManifest } from "../src/manifest.js";
 import {
   assertSupportedImage,
@@ -2310,6 +2311,44 @@ describe("vref webp pipeline", () => {
     expect([...(checkValues ?? [])].sort()).toEqual([...COMMAND_FIELDS.validate].sort());
 
     expect(mismatches).toEqual([]);
+  });
+
+  it("requires every manifest field it marks required", () => {
+    const schema = describeCli() as {
+      manifest: {
+        fields: {
+          screenshots: { items: { fields: Record<string, { required?: boolean }> } };
+        };
+      };
+    };
+    const entry = {
+      id: "home",
+      title: "Home",
+      group: "Main",
+      platform: "Web",
+      device: "Chrome",
+      viewport: { width: 1280, height: 720 },
+      file: "screenshots/home.webp",
+      capturedAt: "2026-09-18T09:00:00.000Z",
+      sizeBytes: 1024,
+      tags: ["home"],
+      notes: [],
+    };
+    expect(decodeScreenshotJson(JSON.stringify(entry)).id).toBe("home");
+
+    // describe no longer carries a separate requiredFields list, so `required`
+    // on each field is the only claim — and this is what holds it to the schema.
+    const required = Object.entries(schema.manifest.fields.screenshots.items.fields)
+      .filter(([, field]) => field.required === true)
+      .map(([name]) => name);
+    expect(required.length).toBe(Object.keys(entry).length);
+
+    for (const field of required) {
+      const { [field]: _omitted, ...withoutField } = entry as Record<string, unknown>;
+      expect(() => decodeScreenshotJson(JSON.stringify(withoutField))).toThrow(
+        expect.objectContaining({ code: "VREF_MANIFEST_SCHEMA_INVALID" }),
+      );
+    }
   });
 
   it("describes the webp pipeline and the screenshot draft contract", () => {

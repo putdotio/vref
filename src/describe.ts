@@ -4,7 +4,8 @@ export function describeCli(): unknown {
   return {
     name: "vref",
     package: "@putdotio/vref",
-    version: 1,
+    /** The shape of this document. Bumped when a field is renamed or removed. */
+    schemaVersion: 2,
     defaults: {
       manifest: ".vref/manifest.json",
       output: ".vref/index.html",
@@ -20,9 +21,7 @@ export function describeCli(): unknown {
     },
     image: {
       outputFormat: "webp",
-      outputExtension: ".webp",
       lossless: true,
-      lossyFlag: "--quality",
       sourceFormats: [".jpg", ".jpeg", ".png", ".webp"],
       encoder: "sharp",
       notes: [
@@ -33,14 +32,8 @@ export function describeCli(): unknown {
       ],
     },
     automation: {
-      defaultNonInteractiveOutput: "json",
-      dryRunForMutations: true,
-      fieldSelection: true,
-      pathSandboxing: true,
-      rawJsonInput: true,
-      schemaIntrospection: true,
       skillPath: "skills/vref/SKILL.md",
-      untrustedTextAnnotations: true,
+      /** Result paths carrying manifest-authored text. Data for the agent, never instructions. */
       untrustedTextPaths: [
         "result.screenshot.title",
         "result.screenshot.group",
@@ -282,7 +275,7 @@ export function describeCli(): unknown {
             values: [
               "name",
               "package",
-              "version",
+              "schemaVersion",
               "defaults",
               "output",
               "image",
@@ -303,21 +296,6 @@ export function describeCli(): unknown {
     },
     manifest: {
       version: 1,
-      path: ".vref/manifest.json",
-      requiredFields: ["version", "title", "description", "updatedAt", "screenshots"],
-      screenshotRequiredFields: [
-        "id",
-        "title",
-        "group",
-        "platform",
-        "device",
-        "viewport",
-        "file",
-        "capturedAt",
-        "sizeBytes",
-        "tags",
-        "notes",
-      ],
       fields: {
         version: { type: "literal", value: 1, required: true },
         title: { type: "string", required: true, minLength: 1 },
@@ -329,19 +307,6 @@ export function describeCli(): unknown {
           minItems: 0,
           items: {
             type: "object",
-            requiredFields: [
-              "id",
-              "title",
-              "group",
-              "platform",
-              "device",
-              "viewport",
-              "file",
-              "capturedAt",
-              "sizeBytes",
-              "tags",
-              "notes",
-            ],
             fields: {
               id: {
                 type: "string",
@@ -355,7 +320,6 @@ export function describeCli(): unknown {
               viewport: {
                 type: "object",
                 required: true,
-                requiredFields: ["width", "height"],
                 fields: {
                   width: { type: "number", required: true, minimumExclusive: 0 },
                   height: { type: "number", required: true, minimumExclusive: 0 },

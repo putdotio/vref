@@ -35,7 +35,7 @@ export const COMMAND_FIELDS = {
   describe: [
     "name",
     "package",
-    "version",
+    "schemaVersion",
     "defaults",
     "output",
     "image",
