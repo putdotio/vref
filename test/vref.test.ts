@@ -19,12 +19,24 @@ import { pathToFileURL } from "node:url";
 import { Cause, Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
-import { isDirectInvocation, recoverCliProgram, runCli } from "../src/cli.js";
+import {
+  COMMAND_FIELDS,
+  COMMAND_FLAGS,
+  COMMON_FLAGS,
+  isDirectInvocation,
+  recoverCliProgram,
+  runCli,
+} from "../src/cli.js";
 import { convertGallery } from "../src/convert.js";
 import { describeCli } from "../src/describe.js";
 import { VrefError } from "../src/errors.js";
 import { encodeWebp } from "../src/image.js";
 import { readManifest, type VrefScreenshotDraft } from "../src/manifest.js";
+import {
+  assertSupportedImage,
+  resolveInsideCwd,
+  safeManifestAssetPath,
+} from "../src/path-safety.js";
 import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
@@ -261,7 +273,7 @@ describe("vref", () => {
 
     await expect(
       validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
-    ).rejects.toThrow("date string");
+    ).rejects.toMatchObject({ code: "VREF_MANIFEST_SCHEMA_INVALID" });
   });
 
   it("renders tag filter buttons only for tags used by multiple screenshots", async () => {
@@ -407,7 +419,58 @@ describe("vref", () => {
 
     await expect(
       resolveServableFile(join(root, ".vref"), "screenshots/roku-720p/leak.txt"),
-    ).rejects.toThrow("serve root");
+    ).rejects.toMatchObject({ code: "VREF_BAD_SERVE_PATH" });
+  });
+
+  it("serves over an IPv6 loopback host and reports a bracketed url", async () => {
+    const root = await makeFixture();
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "::1", port: 0 });
+          expect(result.url).toMatch(/^http:\/\/\[::1\]:\d+\/$/u);
+          const response = yield* Effect.tryPromise(() =>
+            fetch(`${result.url}screenshots/roku-720p/home.jpg`),
+          );
+          expect(response.status).toBe(200);
+          expect(yield* Effect.tryPromise(() => response.text())).toBe("image");
+        }),
+      ),
+    );
+  });
+
+  it("refuses a symlinked serve root", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, "outside.txt"), "outside");
+    await mkdir(join(root, "elsewhere"), { recursive: true });
+    await symlink(join(root, "elsewhere"), join(root, "linked"));
+
+    await expect(
+      Effect.runPromise(
+        Effect.scoped(serve({ cwd: root, dir: "linked", host: "127.0.0.1", port: 0 })),
+      ),
+    ).rejects.toMatchObject({ code: "VREF_SYMLINK_PATH" });
+  });
+
+  it("refuses a symlinked manifest even when it lists no screenshots", async () => {
+    const root = await makeFixture();
+    await writeFile(
+      join(root, "outside.json"),
+      `${JSON.stringify({
+        version: 1,
+        title: "outside",
+        description: "outside",
+        updatedAt: "2026-05-19T13:35:00.000Z",
+        screenshots: [],
+      })}\n`,
+    );
+    await unlink(join(root, ".vref/manifest.json"));
+    await symlink(join(root, "outside.json"), join(root, ".vref/manifest.json"));
+
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).rejects.toMatchObject({ code: "VREF_SYMLINK_PATH" });
   });
 
   it("closes the HTTP server when its Effect scope ends", async () => {
@@ -513,7 +576,7 @@ describe("vref", () => {
         manifestPath: ".vref/manifest.json",
         outputPath: ".vref/index.html",
       }),
-    ).rejects.toThrow("traversal");
+    ).rejects.toMatchObject({ code: "VREF_UNSAFE_ASSET_PATH" });
   });
 
   it("rejects symlinked screenshot assets during build", async () => {
@@ -528,7 +591,7 @@ describe("vref", () => {
         manifestPath: ".vref/manifest.json",
         outputPath: ".vref/index.html",
       }),
-    ).rejects.toThrow("symlinks");
+    ).rejects.toMatchObject({ code: "VREF_SYMLINK_PATH" });
   });
 
   it("rejects symlinked gallery outputs before writing", async () => {
@@ -542,7 +605,7 @@ describe("vref", () => {
         manifestPath: ".vref/manifest.json",
         outputPath: ".vref/index.html",
       }),
-    ).rejects.toThrow("symlinks");
+    ).rejects.toMatchObject({ code: "VREF_SYMLINK_PATH" });
 
     await expect(readFile(join(root, "outside.html"), "utf8")).resolves.toBe("outside");
   });
@@ -557,7 +620,7 @@ describe("vref", () => {
         manifestPath: ".vref/manifest.json",
         outputPath: ".vref/index.html",
       }),
-    ).rejects.toThrow("URL schemes");
+    ).rejects.toMatchObject({ code: "VREF_UNSAFE_ASSET_PATH" });
   });
 
   it("describes build output flags without colliding with output format", () => {
@@ -694,7 +757,7 @@ describe("vref", () => {
 
     await expect(
       Effect.runPromise(runCli(["build", "--output", "json", "--fields", "nope"], root)),
-    ).rejects.toThrow("Unknown --fields value");
+    ).rejects.toMatchObject({ code: "VREF_UNKNOWN_FIELD" });
 
     await expect(readFile(join(root, ".vref/index.html"), "utf8")).rejects.toThrow();
 
@@ -702,7 +765,7 @@ describe("vref", () => {
       Effect.runPromise(
         runCli(["manifest", "add", "--json", JSON.stringify(screenshot), "--fields", "nope"], root),
       ),
-    ).rejects.toThrow("Unknown --fields value");
+    ).rejects.toMatchObject({ code: "VREF_UNKNOWN_FIELD" });
 
     const manifest = await readFile(join(root, ".vref/manifest.json"), "utf8");
     expect(manifest).not.toContain('"settings"');
@@ -827,7 +890,7 @@ describe("vref", () => {
       Effect.runPromise(
         runCli(["manifest", "add", "--json", JSON.stringify(screenshot), "--dry-run", "yes"], root),
       ),
-    ).rejects.toThrow("true/false");
+    ).rejects.toMatchObject({ code: "VREF_INVALID_BOOLEAN" });
 
     const manifest = await readFile(join(root, ".vref/manifest.json"), "utf8");
     expect(manifest).not.toContain('"settings"');
@@ -840,7 +903,7 @@ describe("vref", () => {
 
     await expect(
       Effect.runPromise(runCli(["build", "--check", "true", "--dry-run", "yes"], root)),
-    ).rejects.toThrow("true/false");
+    ).rejects.toMatchObject({ code: "VREF_INVALID_BOOLEAN" });
   });
 
   it("rejects symlinked manifest writes", async () => {
@@ -866,7 +929,7 @@ describe("vref", () => {
 
     await expect(
       Effect.runPromise(runCli(["manifest", "add", "--json", JSON.stringify(screenshot)], root)),
-    ).rejects.toThrow("symlinks");
+    ).rejects.toMatchObject({ code: "VREF_SYMLINK_PATH" });
 
     await expect(readFile(outside, "utf8")).resolves.not.toContain('"settings"');
   });
@@ -1122,7 +1185,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         sourcePath: "capture.png",
       }),
-    ).rejects.toThrow("already has screenshot id");
+    ).rejects.toMatchObject({ code: "VREF_MANIFEST_DUPLICATE_ID" });
     await chmod(join(root, ".vref"), 0o755);
     await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
   });
@@ -1142,7 +1205,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         sourcePath: "capture.png",
       }),
-    ).rejects.toThrow("--force");
+    ).rejects.toMatchObject({ code: "VREF_ASSET_EXISTS" });
 
     const forced = await addScreenshotFromSource({
       cwd: root,
@@ -1168,7 +1231,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         sourcePath: "capture.png",
       }),
-    ).rejects.toThrow("must end in .webp");
+    ).rejects.toMatchObject({ code: "VREF_UNSUPPORTED_IMAGE" });
 
     await expect(
       addScreenshotFromSource({
@@ -1179,7 +1242,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         sourcePath: "capture.png",
       }),
-    ).rejects.toThrow("traversal");
+    ).rejects.toMatchObject({ code: "VREF_UNSAFE_ASSET_PATH" });
   });
 
   it("re-encodes bytes that are not really webp despite the extension", async () => {
@@ -1276,7 +1339,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         sourcePath: "capture.png",
       }),
-    ).rejects.toThrow("already references");
+    ).rejects.toMatchObject({ code: "VREF_ASSET_CLAIMED" });
   });
 
   it("rejects a --quality flag passed without a value", async () => {
@@ -1284,7 +1347,7 @@ describe("vref webp pipeline", () => {
 
     await expect(
       Effect.runPromise(runCli(["convert", "--quality", "--output", "json"], root)),
-    ).rejects.toThrow("without a value");
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
   });
 
   it("rejects an unsupported source format", async () => {
@@ -1300,7 +1363,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         sourcePath: "capture.gif",
       }),
-    ).rejects.toThrow("source image must be");
+    ).rejects.toMatchObject({ code: "VREF_UNSUPPORTED_SOURCE_IMAGE" });
   });
 
   it("converts legacy png assets and preserves unknown manifest fields", async () => {
@@ -1476,7 +1539,7 @@ describe("vref webp pipeline", () => {
         keepSource: false,
         manifestPath: ".vref/manifest.json",
       }),
-    ).rejects.toThrow("both convert to");
+    ).rejects.toMatchObject({ code: "VREF_CONVERT_TARGET_COLLISION" });
 
     // Nothing was written, so neither reference was lost.
     await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
@@ -1515,7 +1578,7 @@ describe("vref webp pipeline", () => {
         keepSource: false,
         manifestPath: ".vref/manifest.json",
       }),
-    ).rejects.toThrow("both convert to");
+    ).rejects.toMatchObject({ code: "VREF_CONVERT_TARGET_COLLISION" });
 
     await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
     await expect(stat(join(root, ".vref/screenshots/LEGACY.jpg"))).resolves.toBeTruthy();
@@ -1611,10 +1674,10 @@ describe("vref webp pipeline", () => {
 
     await expect(
       Effect.runPromise(runCli(["convert", "--only", "--output", "json"], root)),
-    ).rejects.toThrow("without any value");
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_SELECTOR" });
     await expect(
       Effect.runPromise(runCli(["convert", "--only=,,,", "--output", "json"], root)),
-    ).rejects.toThrow("without any value");
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_SELECTOR" });
 
     // The legacy asset is untouched by the rejected runs.
     await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
@@ -1679,7 +1742,7 @@ describe("vref webp pipeline", () => {
         keepSource: false,
         manifestPath: ".vref/manifest.json",
       }),
-    ).rejects.toThrow("both convert to");
+    ).rejects.toMatchObject({ code: "VREF_CONVERT_TARGET_COLLISION" });
   });
 
   it("refuses to convert onto an asset another entry references", async () => {
@@ -1702,7 +1765,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         only: ["legacy"],
       }),
-    ).rejects.toThrow("already references");
+    ).rejects.toMatchObject({ code: "VREF_TARGET_CLAIMED" });
 
     expect(await readFile(join(root, ".vref/screenshots/legacy.webp"), "utf8")).toBe("claimed");
   });
@@ -1739,7 +1802,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         only: ["legacy"],
       }),
-    ).rejects.toThrow("--force");
+    ).rejects.toMatchObject({ code: "VREF_ASSET_EXISTS" });
 
     await rm(join(root, ".vref/screenshots/legacy.webp"));
     await mkdir(join(root, ".vref/screenshots/legacy.webp"), { recursive: true });
@@ -1755,7 +1818,7 @@ describe("vref webp pipeline", () => {
         manifestPath: ".vref/manifest.json",
         only: ["legacy"],
       }),
-    ).rejects.toThrow("not a file");
+    ).rejects.toMatchObject({ code: "VREF_TARGET_NOT_FILE" });
   });
 
   it("leaves the manifest intact when an asset write fails", async () => {
@@ -1899,10 +1962,10 @@ describe("vref webp pipeline", () => {
 
     await expect(
       Effect.runPromise(runCli(["convert", "--manifest", "--output", "json"], root)),
-    ).rejects.toThrow("without a value");
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
     await expect(
       Effect.runPromise(runCli(["validate", "--manifest=", "--output", "json"], root)),
-    ).rejects.toThrow("without a value");
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
   });
 
   it("runs screenshot add and convert through the cli with json output", async () => {
@@ -1954,6 +2017,116 @@ describe("vref webp pipeline", () => {
     ).rejects.toThrow("vref screenshot add");
   });
 
+  it("refuses an unknown flag name instead of running the destructive branch", async () => {
+    const root = await makeLegacyFixture();
+    const before = await readFile(join(root, ".vref/manifest.json"), "utf8");
+
+    await expect(
+      Effect.runPromise(runCli(["convert", "--dryrun", "--output", "json"], root)),
+    ).rejects.toMatchObject({ code: "VREF_UNKNOWN_FLAG" });
+
+    // The typo must not have reached the conversion: manifest and originals intact.
+    expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeDefined();
+  });
+
+  it("refuses an unknown flag on every command that takes one", async () => {
+    const root = await makeLegacyFixture();
+
+    for (const argv of [
+      ["build", "--bogus"],
+      ["validate", "--bogus"],
+      ["serve", "--bogus"],
+      ["describe", "--bogus"],
+      ["convert", "--keepsource"],
+      ["manifest", "add", "--forc"],
+      ["screenshot", "add", "capture.png", "--quailty", "80"],
+    ]) {
+      await expect(
+        Effect.runPromise(runCli([...argv, "--output", "json"], root)),
+      ).rejects.toMatchObject({ code: "VREF_UNKNOWN_FLAG" });
+    }
+  });
+
+  it("refuses a path flag that was passed without a value", async () => {
+    const root = await makeFixture();
+
+    await expect(
+      Effect.runPromise(runCli(["build", "--out", "--output", "json"], root)),
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
+    await expect(
+      Effect.runPromise(runCli(["build", "--out=", "--output", "json"], root)),
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
+    await expect(
+      Effect.runPromise(runCli(["serve", "--dir=", "--output", "json"], root)),
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
+    await expect(
+      Effect.runPromise(runCli(["serve", "--host=", "--output", "json"], root)),
+    ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
+
+    // The default gallery must not have been written by the malformed build.
+    await expect(stat(join(root, ".vref/index.html"))).rejects.toThrow();
+  });
+
+  it("still accepts every documented flag", async () => {
+    const root = await makeLegacyFixture();
+
+    await Effect.runPromise(runCli(["validate", "--manifest", ".vref/manifest.json"], root));
+    await Effect.runPromise(runCli(["build", "--out", ".vref/index.html", "--check"], root));
+    await Effect.runPromise(
+      runCli(["convert", "--only", "legacy", "--keep-source", "--dry-run"], root),
+    );
+    await Effect.runPromise(runCli(["describe", "--output", "json", "--fields", "commands"], root));
+  });
+
+  it("describes exactly the flags the CLI implements", () => {
+    const described = describedCommands();
+    const mismatches: string[] = [];
+
+    for (const [command, allowed] of Object.entries(COMMAND_FLAGS)) {
+      const expected = new Set([...allowed, ...COMMON_FLAGS]);
+      const actual = described.get(command);
+      if (actual === undefined) {
+        mismatches.push(`${command}: not described at all`);
+        continue;
+      }
+
+      for (const flag of actual) {
+        if (!expected.has(flag)) {
+          mismatches.push(`${command}: describes --${flag}, which the CLI does not accept`);
+        }
+      }
+      for (const flag of expected) {
+        if (!actual.has(flag)) {
+          mismatches.push(`${command}: accepts --${flag}, which describe does not mention`);
+        }
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+  });
+
+  it("describes the --fields values each command actually validates", () => {
+    const schema = describeCli() as {
+      commands: Record<string, Record<string, unknown>>;
+    };
+    const mismatches: string[] = [];
+
+    for (const [command, fields] of Object.entries(COMMAND_FIELDS)) {
+      const options = optionsFor(schema.commands[command]);
+      const described = (options?.fields as { values?: readonly string[] } | undefined)?.values;
+      if (described === undefined) {
+        mismatches.push(`${command}: describe lists no --fields values`);
+        continue;
+      }
+      if ([...described].sort().join(",") !== [...fields].sort().join(",")) {
+        mismatches.push(`${command}: describe lists ${described.join("|")}`);
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+  });
+
   it("describes the webp pipeline and the screenshot draft contract", () => {
     const schema = JSON.stringify(describeCli());
 
@@ -1965,6 +2138,119 @@ describe("vref webp pipeline", () => {
     expect(schema).toContain('"allowedExtensions":[".jpg",".jpeg",".png",".webp"]');
   });
 });
+
+describe("path safety", () => {
+  // These rejections are the whole sandbox for a tool that writes files from
+  // agent-supplied JSON. Exercising them through buildGallery only ever reaches
+  // two of them, so they are asserted here directly, by code rather than by
+  // message: the code is what consumers branch on.
+  const rejectedAssetPaths: [string, string][] = [
+    ["a\u0001.webp", "control character"],
+    ["/etc/passwd", "absolute path"],
+    ["screenshots/home.webp?x=1", "query string"],
+    ["screenshots/home.webp#frag", "hash fragment"],
+    ["C:/screenshots/home.webp", "drive prefix"],
+    ["%2e%2e/home.webp", "encoded traversal"],
+    ["%2fetc/home.webp", "encoded separator"],
+    ["%5cetc/home.webp", "encoded backslash"],
+    ["../home.webp", "traversal segment"],
+    ["screenshots//home.webp", "empty segment"],
+    ["screenshots/./home.webp", "dot segment"],
+  ];
+
+  for (const [value, label] of rejectedAssetPaths) {
+    it(`rejects a screenshot file with a ${label}`, () => {
+      expect(() => safeManifestAssetPath(value, "file")).toThrow(
+        expect.objectContaining({ code: "VREF_UNSAFE_ASSET_PATH" }),
+      );
+    });
+  }
+
+  it("accepts a relative asset path and normalizes separators", () => {
+    expect(safeManifestAssetPath("screenshots/roku-720p/home.webp", "file")).toBe(
+      "screenshots/roku-720p/home.webp",
+    );
+    expect(safeManifestAssetPath("screenshots\\roku-720p\\home.webp", "file")).toBe(
+      "screenshots/roku-720p/home.webp",
+    );
+  });
+
+  it("rejects an output path with a control character", () => {
+    expect(() => resolveInsideCwd("/tmp/vref", "out\u0001.html", "output")).toThrow(
+      expect.objectContaining({ code: "VREF_UNSAFE_PATH" }),
+    );
+  });
+
+  it("rejects an output path that escapes the working tree", () => {
+    expect(() => resolveInsideCwd("/tmp/vref", "../escape.html", "output")).toThrow(
+      expect.objectContaining({ code: "VREF_PATH_OUTSIDE_CWD" }),
+    );
+  });
+
+  it("resolves an output path inside the working tree", () => {
+    expect(resolveInsideCwd("/tmp/vref", ".vref/index.html", "output")).toBe(
+      "/tmp/vref/.vref/index.html",
+    );
+    expect(resolveInsideCwd("/tmp/vref", ".", "output")).toBe("/tmp/vref");
+  });
+
+  it("accepts every supported image extension and rejects the rest", () => {
+    for (const extension of [".jpg", ".jpeg", ".png", ".webp"]) {
+      expect(() => assertSupportedImage(`home${extension}`)).not.toThrow();
+      expect(() => assertSupportedImage(`home${extension.toUpperCase()}`)).not.toThrow();
+    }
+
+    for (const extension of [".gif", ".svg", ".bmp", ""]) {
+      expect(() => assertSupportedImage(`home${extension}`)).toThrow(
+        expect.objectContaining({ code: "VREF_UNSUPPORTED_IMAGE" }),
+      );
+    }
+  });
+});
+
+/** The options block for a command, reaching through an `add` subcommand. */
+function optionsFor(entry: unknown): Record<string, unknown> | undefined {
+  if (entry === null || typeof entry !== "object") {
+    return undefined;
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (record.options !== undefined) {
+    return record.options as Record<string, unknown>;
+  }
+
+  return optionsFor(record.add);
+}
+
+/** Flag names describe() advertises, per command, with the `--` stripped. */
+function describedCommands(): Map<string, Set<string>> {
+  const schema = describeCli() as { commands: Record<string, unknown> };
+  const described = new Map<string, Set<string>>();
+
+  for (const [command, entry] of Object.entries(schema.commands)) {
+    const options = optionsFor(entry);
+    if (options === undefined) {
+      continue;
+    }
+
+    const names = new Set<string>();
+    for (const [key, option] of Object.entries(options)) {
+      const shape = option as { flag?: string; flags?: readonly string[] };
+      if (shape.flags !== undefined) {
+        for (const flag of shape.flags) {
+          names.add(flag.replace(/^--/u, ""));
+        }
+      } else if (shape.flag !== undefined) {
+        names.add(shape.flag.replace(/^--/u, ""));
+      } else {
+        names.add(key);
+      }
+    }
+    described.set(command, names);
+  }
+
+  return described;
+}
 
 function draftFor(id: string): VrefScreenshotDraft {
   return {

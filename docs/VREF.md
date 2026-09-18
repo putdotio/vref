@@ -118,6 +118,9 @@ vref build
 vref serve
 ```
 
+Unrecognised flag names and value-less path flags are refused rather than
+ignored, so `vref convert --dryrun` fails instead of converting.
+
 `validate` checks the manifest and screenshot assets without writing files.
 `build --check` performs the same no-write validation through the build command.
 `build` validates the manifest, confirms screenshot files exist, and writes `.vref/index.html`.
@@ -132,6 +135,7 @@ Previews contain the complete image without cropping; open a card to inspect it 
 
 ## Safety Rules
 
+- `serve` refuses a symlinked directory, and `validate` refuses a symlinked manifest, so a checked-out tree cannot redirect either outside the repo.
 - Commit only curated screenshots with stable names.
 - Do not commit private screenshots, auth codes, secrets, local IPs, real account identifiers, content IDs, or local absolute paths.
 - Re-encoding drops source metadata, so EXIF from a `.png` or `.jpg` capture never reaches `.vref/`. A verbatim `.webp` copy keeps whatever it carries; pass `--quality` to force a re-encode.

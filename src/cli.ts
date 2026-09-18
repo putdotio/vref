@@ -19,6 +19,67 @@ const DEFAULT_SERVE_DIR = ".vref";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4173;
 
+export const COMMON_FLAGS = ["output", "fields", "help"] as const;
+
+/**
+ * The top-level result fields each command accepts in `--fields`.
+ *
+ * Exported so a test can hold `describe`'s advertised list to what the command
+ * actually validates against; the two drifted silently before.
+ */
+export const COMMAND_FIELDS: Record<string, readonly string[]> = {
+  build: ["manifestPath", "outputPath", "screenshotCount", "groupCount", "deviceCount"],
+  validate: ["manifestPath", "screenshotCount", "groupCount", "deviceCount"],
+  serve: ["dir", "host", "port", "url"],
+  describe: [
+    "name",
+    "package",
+    "version",
+    "defaults",
+    "output",
+    "image",
+    "automation",
+    "commands",
+    "manifest",
+  ],
+  manifest: ["assetExists", "dryRun", "manifestPath", "screenshot", "screenshotCount"],
+  screenshot: [
+    "dryRun",
+    "file",
+    "manifestPath",
+    "reencoded",
+    "screenshot",
+    "screenshotCount",
+    "sourceBytes",
+    "sourcePath",
+  ],
+  convert: [
+    "conversions",
+    "convertedCount",
+    "dryRun",
+    "manifestPath",
+    "savedBytes",
+    "skippedCount",
+  ],
+};
+
+/**
+ * The flags each command accepts, beside COMMON_FLAGS.
+ *
+ * Without this, an unrecognised name is parsed and then ignored, so a typo
+ * degrades to the destructive branch: `--dryrun` runs a real conversion and
+ * deletes the originals. Kept in step with printHelp and describe.ts.
+ */
+export const COMMAND_FLAGS: Record<string, readonly string[]> = {
+  build: ["manifest", "out", "output-path", "check", "dry-run"],
+  validate: ["manifest"],
+  serve: ["dir", "host", "port"],
+  describe: [],
+  manifest: ["manifest", "json", "dry-run", "check"],
+  screenshot: ["manifest", "json", "quality", "force", "dry-run", "check"],
+  convert: ["manifest", "only", "quality", "keep-source", "force", "dry-run", "check"],
+};
+
 type ParsedArgs = {
   command: string;
   fields: readonly string[];
@@ -46,12 +107,12 @@ export const runCli = Effect.fn("vref.cli")(function* (
     return;
   }
 
+  yield* syncBoundary(() => validateFlagNames(args));
+
   switch (args.command) {
     case "build": {
       if (getBoolean(args, "check") || getBoolean(args, "dry-run")) {
-        yield* syncBoundary(() =>
-          validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]),
-        );
+        yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.validate ?? []));
         const result = yield* promiseBoundary(() =>
           validateGallery({
             cwd,
@@ -64,20 +125,12 @@ export const runCli = Effect.fn("vref.cli")(function* (
         return;
       }
 
-      yield* syncBoundary(() =>
-        validateFields(args, [
-          "manifestPath",
-          "outputPath",
-          "screenshotCount",
-          "groupCount",
-          "deviceCount",
-        ]),
-      );
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.build ?? []));
       const result = yield* promiseBoundary(() =>
         buildGallery({
           cwd,
           manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
-          outputPath: getString(args, "out") ?? getString(args, "output-path") ?? DEFAULT_OUTPUT,
+          outputPath: getRequiredStringFrom(args, ["out", "output-path"], DEFAULT_OUTPUT),
         }),
       );
       yield* Effect.sync(() => print(args, result, `wrote ${result.outputPath}`));
@@ -85,9 +138,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "validate": {
-      yield* syncBoundary(() =>
-        validateFields(args, ["manifestPath", "screenshotCount", "groupCount", "deviceCount"]),
-      );
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.validate ?? []));
       const result = yield* promiseBoundary(() =>
         validateGallery({
           cwd,
@@ -101,14 +152,14 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "serve": {
-      yield* syncBoundary(() => validateFields(args, ["dir", "host", "port", "url"]));
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.serve ?? []));
       const port = yield* optionalPositiveInteger(args, "port");
       return yield* Effect.scoped(
         Effect.gen(function* () {
           const result = yield* serve({
             cwd,
-            dir: getString(args, "dir") ?? DEFAULT_SERVE_DIR,
-            host: getString(args, "host") ?? DEFAULT_HOST,
+            dir: getRequiredString(args, "dir", DEFAULT_SERVE_DIR),
+            host: getRequiredString(args, "host", DEFAULT_HOST),
             port: port ?? DEFAULT_PORT,
           });
           yield* Effect.sync(() => {
@@ -125,19 +176,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "describe": {
-      yield* syncBoundary(() =>
-        validateFields(args, [
-          "name",
-          "package",
-          "version",
-          "defaults",
-          "output",
-          "image",
-          "automation",
-          "commands",
-          "manifest",
-        ]),
-      );
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.describe ?? []));
       const result = describeCli();
       yield* Effect.sync(() => print(args, result, "vref: build, validate, serve, describe"));
       return;
@@ -161,15 +200,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         );
       }
 
-      yield* syncBoundary(() =>
-        validateFields(args, [
-          "assetExists",
-          "dryRun",
-          "manifestPath",
-          "screenshot",
-          "screenshotCount",
-        ]),
-      );
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.manifest ?? []));
       const screenshot = yield* syncBoundary(() => decodeScreenshotJson(rawJson));
       const result = yield* promiseBoundary(() =>
         addScreenshot({
@@ -214,18 +245,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
         );
       }
 
-      yield* syncBoundary(() =>
-        validateFields(args, [
-          "dryRun",
-          "file",
-          "manifestPath",
-          "reencoded",
-          "screenshot",
-          "screenshotCount",
-          "sourceBytes",
-          "sourcePath",
-        ]),
-      );
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.screenshot ?? []));
       const quality = yield* optionalPositiveInteger(args, "quality");
       const draft = yield* syncBoundary(() => decodeScreenshotDraftJson(rawJson));
       const result = yield* promiseBoundary(() =>
@@ -247,16 +267,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
     }
 
     case "convert": {
-      yield* syncBoundary(() =>
-        validateFields(args, [
-          "conversions",
-          "convertedCount",
-          "dryRun",
-          "manifestPath",
-          "savedBytes",
-          "skippedCount",
-        ]),
-      );
+      yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.convert ?? []));
       const quality = yield* optionalPositiveInteger(args, "quality");
       const dryRun = getBoolean(args, "dry-run") || getBoolean(args, "check");
       const only = yield* syncBoundary(() => parseList(args, "only"));
@@ -371,6 +382,23 @@ function getRequiredString(args: ParsedArgs, key: string, fallback: string): str
   return resolved;
 }
 
+/**
+ * The same contract as getRequiredString for a flag with more than one name.
+ */
+function getRequiredStringFrom(
+  args: ParsedArgs,
+  keys: readonly string[],
+  fallback: string,
+): string {
+  for (const key of keys) {
+    if (args.flags.get(key) !== undefined) {
+      return getRequiredString(args, key, fallback);
+    }
+  }
+
+  return fallback;
+}
+
 function getStringFromFlags(flags: Map<string, string | true>, key: string): string | undefined {
   const value = flags.get(key);
 
@@ -434,6 +462,24 @@ function validateBooleanFlag(args: ParsedArgs, key: string): void {
     "VREF_INVALID_BOOLEAN",
     `--${key} must be passed without a value or with true/false`,
   );
+}
+
+function validateFlagNames(args: ParsedArgs): void {
+  const allowed = COMMAND_FLAGS[args.command];
+  if (allowed === undefined) {
+    return;
+  }
+
+  const unknownFlags = [...args.flags.keys()].filter(
+    (flag) =>
+      !allowed.includes(flag) && !COMMON_FLAGS.includes(flag as (typeof COMMON_FLAGS)[number]),
+  );
+  if (unknownFlags.length > 0) {
+    throw new VrefError(
+      "VREF_UNKNOWN_FLAG",
+      `Unknown flag for \`vref ${args.command}\`: ${unknownFlags.map((flag) => `--${flag}`).join(", ")}`,
+    );
+  }
 }
 
 function validateFields(args: ParsedArgs, allowedFields: readonly string[]): void {

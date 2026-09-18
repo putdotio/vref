@@ -38,4 +38,5 @@ Rules:
 - `--only` rejects an empty value rather than falling back to converting everything.
 - `assetExists` reports whether the referenced screenshot already exists.
 - After updating screenshot files, run `vref validate --output json --fields screenshotCount,groupCount,deviceCount`.
-- Top-level `--fields` values only; do not use dotted paths.
+- Top-level `--fields` values only; do not use dotted paths. `vref describe` lists the accepted values per command.
+- An unrecognised flag name is rejected with `VREF_UNKNOWN_FLAG`, and a path flag passed without a value with `VREF_EMPTY_FLAG`. Neither falls through to a default, so a typo cannot quietly run the destructive branch.
