@@ -131,11 +131,16 @@ function isStillReferenced(
 ): boolean {
   const screenshots = Array.isArray(document.screenshots) ? document.screenshots : [];
 
+  // Case-insensitive for the same reason as collectAssets, and erring toward
+  // keeping a file: a source that might still be referenced must not be
+  // deleted.
+  const source = item.sourceAssetPath.toLowerCase();
+
   return screenshots.some(
     (raw) =>
       Predicate.isObject(raw) &&
       typeof raw.file === "string" &&
-      join(vrefDir, raw.file) === item.sourceAssetPath,
+      join(vrefDir, raw.file).toLowerCase() === source,
   );
 }
 
@@ -197,10 +202,16 @@ function collectAssets(pending: PendingConversion[]): Map<string, PendingConvers
   const assets = new Map<string, PendingConversion>();
 
   for (const item of pending) {
-    const claimed = assets.get(item.targetAssetPath);
+    // Keyed case-insensitively because `.vref/` is committed and checked out on
+    // both case-sensitive and case-insensitive filesystems. `home.png` and
+    // `HOME.jpg` are two files on Linux but one on macOS and Windows, so
+    // comparing raw strings would let the second write swallow the first on
+    // exactly the machines most of these galleries are authored on.
+    const key = item.targetAssetPath.toLowerCase();
+    const claimed = assets.get(key);
 
     if (claimed === undefined) {
-      assets.set(item.targetAssetPath, item);
+      assets.set(key, item);
       continue;
     }
 
