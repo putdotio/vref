@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Effect } from "effect";
 import { VrefError } from "./errors.js";
-import { realPathInside, resolveInsideCwd } from "./path-safety.js";
+import { assertNoSymlinkInPath, realPathInside, resolveInsideCwd } from "./path-safety.js";
 
 export type ServeOptions = {
   cwd: string;
@@ -31,6 +31,13 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
     try: () => resolveInsideCwd(options.cwd, options.dir, "serve dir"),
     catch: normalizeServeError,
   });
+  yield* Effect.tryPromise({
+    // resolveInsideCwd is lexical, so it cannot see a symlinked serve root.
+    // Without this, stat() follows the link and realPathInside then measures
+    // containment against its target, serving whatever lives there.
+    try: () => assertNoSymlinkInPath(options.cwd, root, "serve dir"),
+    catch: normalizeServeError,
+  });
   const rootStats = yield* Effect.tryPromise({
     try: () => stat(root),
     catch: (cause) =>
@@ -50,7 +57,10 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
   const server = createServer(async (request, response) => {
     let decodedPath: string;
     try {
-      const requestUrl = new URL(request.url ?? "/", `http://${options.host}:${options.port}`);
+      // Only pathname is read, so the base host is arbitrary. A fixed one keeps
+      // a bare IPv6 literal from producing an unparseable URL whose throw would
+      // be caught below and answered as 400 for every request.
+      const requestUrl = new URL(request.url ?? "/", "http://localhost");
       decodedPath = decodeURIComponent(requestUrl.pathname);
     } catch {
       response.writeHead(400);
@@ -123,7 +133,7 @@ const listen = Effect.fn("vref.serve.listen")(
           dir: root,
           host: options.host,
           port: address.port,
-          url: `http://${options.host}:${address.port}/`,
+          url: `http://${formatHost(options.host)}:${address.port}/`,
         };
         resume(Effect.succeed({ result, server }));
       });
@@ -182,6 +192,22 @@ export async function resolveServableFile(root: string, relativePath: string): P
     }
     throw error;
   }
+}
+
+/**
+ * Bracket an IPv6 literal so it can carry a port.
+ *
+ * `http://::1:4173/` is not a URL. A hostname or IPv4 address never contains a
+ * colon, so the colon is the whole test.
+ */
+function formatHost(host: string): string {
+  // Defensive only: listen() rejects a bracketed host with ENOTFOUND, so this
+  // never runs from the CLI.
+  if (host.startsWith("[") && host.endsWith("]")) {
+    return host;
+  }
+
+  return host.includes(":") ? `[${host}]` : host;
 }
 
 function contentType(filePath: string): string {

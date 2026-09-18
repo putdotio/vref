@@ -40,6 +40,9 @@ export async function validateGallery(options: {
   manifestPath: string;
 }): Promise<VrefValidateResult> {
   const paths = workspacePaths(options.cwd, options.manifestPath);
+  // The per-asset check below covers the manifest directory, but only once the
+  // loop runs: an empty screenshots array would otherwise skip every check.
+  await assertNoSymlinkInPath(paths.cwd, paths.manifestPath, "manifest");
   const manifest = await readManifest(paths.manifestPath);
 
   for (const screenshot of manifest.screenshots) {
