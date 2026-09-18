@@ -155,8 +155,14 @@ async function assertWritableTarget(
 
   try {
     await stat(assetPath);
-  } catch {
-    return;
+  } catch (error) {
+    // Only a missing asset leaves the path free; any other failure must not be
+    // read as permission to overwrite.
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+
+    throw error;
   }
 
   throw new VrefError(

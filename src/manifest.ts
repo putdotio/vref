@@ -131,10 +131,12 @@ async function writeManifestAtomically(path: string, contents: string): Promise<
   const temporaryPath = `${path}.${randomBytes(8).toString("hex")}.tmp`;
 
   try {
-    await writeFile(temporaryPath, contents, { flag: "wx" });
-    // Replacing the inode would otherwise reset a deliberately private manifest
-    // to the default 0644.
+    // Created at its final mode, not widened and tightened afterwards: the
+    // gap between the two would hold a complete private manifest that anyone
+    // reading the directory could open.
+    await writeFile(temporaryPath, contents, { flag: "wx", mode: mode ?? 0o666 });
     if (mode !== undefined) {
+      // umask can only clear bits at creation, so restore the exact mode.
       await chmod(temporaryPath, mode);
     }
     await rename(temporaryPath, path);
@@ -149,9 +151,19 @@ async function existingMode(path: string): Promise<number | undefined> {
     const stats = await stat(path);
 
     return stats.mode & 0o777;
-  } catch {
-    return undefined;
+  } catch (error) {
+    // Only a missing manifest has no mode to carry over. Guessing after any
+    // other failure risks publishing a private manifest at the default mode.
+    if (hasErrorCode(error, "ENOENT")) {
+      return undefined;
+    }
+
+    throw error;
   }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 export function screenshotFromJson(value: unknown, path: string): VrefScreenshot {

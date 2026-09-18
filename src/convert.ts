@@ -352,10 +352,12 @@ async function targetState(
 
     return { exists: true, size: stats.size };
   } catch (error) {
-    if (error instanceof VrefError) {
+    if (error instanceof VrefError || !hasErrorCode(error, "ENOENT")) {
       throw error;
     }
 
+    // Only a missing target is a free one. Reporting an unreadable target as
+    // absent would let a dry run promise a plan that overwrites it.
     return { exists: false, size: 0 };
   }
 }
