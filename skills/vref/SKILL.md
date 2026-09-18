@@ -63,11 +63,12 @@ References are webp; sources may be `.png`, `.jpg`, `.jpeg`, or `.webp`. Legacy 
 `.jpeg`, and `.png` entries still validate, so migrate with
 `vref convert --dry-run --output json` first, then `vref convert`.
 
-`screenshot add` derives `sizeBytes`, `viewport`, and `capturedAt`, so do not
-hand-write them. Pass `viewport` when the capture is retina, scaled, or cropped,
-and `file` when the gallery needs a nested path instead of the default
-`screenshots/<id>.webp`. [`references/manifest.md`](references/manifest.md) has
-the rest.
+`screenshot add` measures `sizeBytes` and dates `capturedAt` from the source
+file, so do not hand-write either. Two fields are worth overriding: `viewport`,
+which defaults to the encoded pixel size but must record the logical dimensions
+a retina, scaled, or cropped capture represents; and `file`, when the gallery
+needs a nested path instead of the default `screenshots/<id>.webp`.
+[`references/manifest.md`](references/manifest.md) has the rest.
 
 ## Command Notes
 

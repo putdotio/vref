@@ -64,7 +64,7 @@ export const COMMAND_FIELDS = {
     "savedBytes",
     "skippedCount",
   ],
-} satisfies Record<string, readonly string[]>;
+} as const satisfies Record<string, readonly string[]>;
 
 /**
  * The flags each command accepts, beside COMMON_FLAGS.
