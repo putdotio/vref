@@ -12,6 +12,7 @@
   },
   "files": [
     "AGENTS.md",
+    "CONTEXT.md",
     "dist",
     "docs",
     "README.md",

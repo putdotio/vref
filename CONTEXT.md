@@ -22,8 +22,9 @@ The JSON document that records a reference set. `.vref/manifest.json` by default
 _Avoid_: index, catalog, config
 
 **Manifest directory**:
-The directory holding the manifest. Every asset path resolves inside it, and it
-is what `serve` serves.
+The directory holding the manifest. Every asset path resolves inside it. What
+`serve` serves is chosen independently, so relocating the manifest does not move
+it.
 _Avoid_: vref dir, `.vref/` (only the default location), root
 
 **Gallery**:
@@ -56,8 +57,9 @@ knows and `vref` cannot measure.
 _Avoid_: partial entry, payload
 
 **Derived field**:
-A field `vref` measures from the bytes rather than accepting from a draft, so it
-cannot drift from the file.
+A field `vref` fills in from the source rather than asking a draft for it.
+`sizeBytes` is measured unconditionally; `file`, `viewport`, and `capturedAt`
+are defaults a draft may override.
 _Avoid_: computed field, metadata
 
 **Claimed**:
@@ -82,8 +84,9 @@ Narrower than platform.
 _Avoid_: browser, resolution, screen
 
 **Viewport**:
-The CSS viewport a reference represents. Not the stored pixel dimensions, which
-are twice as large on a retina capture.
+The logical dimensions a reference represents — CSS pixels on the web, the
+equivalent layout units elsewhere. Not the stored pixel dimensions, which a
+retina or scaled capture inflates.
 _Avoid_: dimensions, size, resolution
 
 **Tag**:

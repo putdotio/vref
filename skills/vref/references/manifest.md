@@ -32,7 +32,7 @@ Rules:
 - Use `--dry-run` first; remove it only after the preview matches the intended screenshot id and file path.
 - Reach for `manifest add` only for metadata-only entries. It writes `.vref/manifest.json` and nothing else; it does not encode, capture, or copy screenshots.
 - `screenshot add` writes webp only. Any `file` you pass must end in `.webp`.
-- Do not hand-write `sizeBytes`, `viewport`, or `capturedAt` for `screenshot add`; it fills them in from the encoded image and the source file's mtime. `viewport` records the CSS viewport while the derived value measures stored pixels, so pass it whenever the device pixel ratio is not 1 — a retina capture stores 2x.
+- Do not hand-write `sizeBytes`, `viewport`, or `capturedAt` for `screenshot add`; it fills them in from the encoded image and the source file's mtime. `viewport` records the logical dimensions a reference represents while the default measures stored pixels, so pass it whenever the two differ — a retina capture stores 2x.
 - `convert` rewrites the manifest before deleting any original, skips entries that are already webp, and keeps a source that another entry still references. Pass `--keep-source` to retain the originals.
 - `convert` fails before writing when two different assets would resolve to the same `.webp` name. Rename one and rerun.
 - `--only` rejects an empty value rather than falling back to converting everything.

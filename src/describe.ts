@@ -26,7 +26,7 @@ export function describeCli(): unknown {
       notes: [
         "vref encodes webp only; --quality switches from lossless to lossy webp",
         "a webp source is copied verbatim only when its bytes are really webp and it carries no EXIF orientation; --quality always re-encodes",
-        "viewport records the CSS viewport but defaults to the stored pixel size; pass it in --json whenever the device pixel ratio is not 1",
+        "viewport records the logical dimensions a reference represents but defaults to the stored pixel size; pass it in --json whenever the two differ",
         "manifest entries may still reference legacy .jpg, .jpeg, and .png assets",
       ],
     },
@@ -290,7 +290,7 @@ export function describeCli(): unknown {
         derivedFields: {
           file: "screenshots/<id>.webp when omitted; must end in .webp",
           sizeBytes: "always the encoded webp byte length",
-          viewport: "source image pixel dimensions when omitted",
+          viewport: "encoded pixel dimensions when omitted, after EXIF orientation is applied",
           capturedAt: "source file modification time when omitted",
         },
       },

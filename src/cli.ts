@@ -530,7 +530,7 @@ Usage:
 
 Encodes a captured .png, .jpg, or .webp source to lossless webp, writes it under
 .vref/screenshots/, and appends the manifest entry. Pass --quality for lossy webp.
-Pass "viewport" in --json for retina captures; it defaults to the image's pixel size.
+Pass "viewport" in --json when the logical size differs from the stored pixels; it defaults to the encoded pixel size.
 
 Usage:
   vref screenshot add <source> --json '{"id":"home","title":"Home","group":"Main pages","platform":"Web","device":"Chrome 1440"}' [--manifest .vref/manifest.json] [--quality 1-100] [--force] [--dry-run] [--output json] [--fields field[,field...]]
