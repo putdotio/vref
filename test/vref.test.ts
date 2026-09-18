@@ -1377,6 +1377,43 @@ describe("vref webp pipeline", () => {
     await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
   });
 
+  it("detects a target collision that differs only by filename case", async () => {
+    const root = await makeLegacyFixture();
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: "#ffffff" },
+    })
+      .jpeg()
+      .toBuffer();
+    // On macOS and Windows these two resolve to one file; on Linux they do not.
+    // A committed .vref/ has to survive both, so the collision is refused
+    // regardless of the filesystem running the test.
+    await writeFile(join(root, ".vref/screenshots/LEGACY.jpg"), jpeg);
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    document.screenshots.push({
+      ...document.screenshots[0],
+      id: "legacy-upper",
+      file: "screenshots/LEGACY.jpg",
+      sizeBytes: jpeg.byteLength,
+    });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow("both convert to");
+
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/LEGACY.jpg"))).resolves.toBeTruthy();
+  });
+
   it("keeps a shared source that an unselected entry still references", async () => {
     const root = await makeLegacyFixture();
     const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
