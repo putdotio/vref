@@ -1,4 +1,16 @@
-import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  unlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +19,12 @@ import { Cause, Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 import { buildGallery, validateGallery } from "../src/build.js";
 import { isDirectInvocation, recoverCliProgram, runCli } from "../src/cli.js";
+import { convertGallery } from "../src/convert.js";
 import { describeCli } from "../src/describe.js";
 import { VrefError } from "../src/errors.js";
+import { encodeWebp } from "../src/image.js";
+import { readManifest, type VrefScreenshotDraft } from "../src/manifest.js";
+import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest } from "../src/types.js";
 
@@ -976,3 +992,780 @@ describe("cli entry detection", () => {
     expect(isDirectInvocation("file:///nowhere/cli.mjs", "/nonexistent/cli.mjs")).toBe(false);
   });
 });
+
+describe("vref webp pipeline", () => {
+  it("encodes a png capture to lossless webp and derives manifest metadata", async () => {
+    const root = await makeWebpFixture();
+    const source = join(root, "capture.png");
+    const sourceBytes = await makePng(source, 64, 48);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+
+    const written = await readFile(join(root, ".vref/screenshots/home.webp"));
+    expect(result.file).toBe("screenshots/home.webp");
+    expect(result.reencoded).toBe(true);
+    expect(webpVariant(written)).toBe("VP8L");
+    // The manifest must describe the encoded file, not the source it came from.
+    expect(result.screenshot.sizeBytes).toBe(written.byteLength);
+    expect(result.screenshot.viewport).toEqual({ width: 64, height: 48 });
+    expect(result.sourceBytes).toBe(sourceBytes);
+    expect(written.byteLength).toBeLessThan(sourceBytes);
+
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots).toHaveLength(1);
+    expect(manifest.screenshots[0]?.file).toBe("screenshots/home.webp");
+  });
+
+  it("dates a capture from the source file when the draft omits capturedAt", async () => {
+    const root = await makeWebpFixture();
+    const source = join(root, "capture.png");
+    await makePng(source, 8, 8);
+    const mtime = new Date("2026-04-02T10:11:12.000Z");
+    await utimes(source, mtime, mtime);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+
+    expect(result.screenshot.capturedAt).toBe("2026-04-02T10:11:12.000Z");
+  });
+
+  it("encodes lossy webp when a quality is given", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 64, 48);
+
+    await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      quality: 60,
+      sourcePath: "capture.png",
+    });
+
+    expect(webpVariant(await readFile(join(root, ".vref/screenshots/home.webp")))).toBe("VP8 ");
+  });
+
+  it("copies a webp source verbatim instead of re-encoding it", async () => {
+    const root = await makeWebpFixture();
+    const pngPath = join(root, "capture.png");
+    await makePng(pngPath, 32, 32);
+    const webpSource = await encodeWebp({ sourcePath: pngPath });
+    await writeFile(join(root, "capture.webp"), webpSource.data);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.webp",
+    });
+
+    const written = await readFile(join(root, ".vref/screenshots/home.webp"));
+    expect(result.reencoded).toBe(false);
+    expect(written.equals(webpSource.data)).toBe(true);
+  });
+
+  it("writes nothing on a dry run", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: true,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.screenshot.sizeBytes).toBeGreaterThan(0);
+    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
+    expect((await readManifest(join(root, ".vref/manifest.json"))).screenshots).toHaveLength(0);
+  });
+
+  it("rejects a duplicate id without writing an orphan asset", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+    await rm(join(root, ".vref/screenshots/home.webp"));
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow("already has screenshot id");
+    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
+  });
+
+  it("refuses to overwrite an existing asset without force", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    await writeFile(join(root, ".vref/screenshots/home.webp"), "existing");
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow("--force");
+
+    const forced = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: true,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+    expect(forced.screenshot.sizeBytes).toBeGreaterThan(0);
+  });
+
+  it("rejects a non-webp target file and a target outside the vref directory", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: { ...draftFor("home"), file: "screenshots/home.png" },
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow("must end in .webp");
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: { ...draftFor("home"), file: "../escaped.webp" },
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow("traversal");
+  });
+
+  it("rejects an unsupported source format", async () => {
+    const root = await makeWebpFixture();
+    await writeFile(join(root, "capture.gif"), "not an image");
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.gif",
+      }),
+    ).rejects.toThrow("source image must be");
+  });
+
+  it("converts legacy png assets and preserves unknown manifest fields", async () => {
+    const root = await makeLegacyFixture();
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.convertedCount).toBe(1);
+    expect(result.skippedCount).toBe(1);
+    expect(result.savedBytes).toBeGreaterThan(0);
+    expect(result.conversions[0]?.to).toBe("screenshots/legacy.webp");
+
+    const document: unknown = JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8"));
+    expect(document).toMatchObject({
+      customField: "must survive",
+      screenshots: [
+        { file: "screenshots/legacy.webp", reviewer: "altay" },
+        { file: "screenshots/current.webp" },
+      ],
+    });
+
+    // The original is gone and the rewritten manifest still resolves.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).rejects.toThrow();
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toMatchObject({ screenshotCount: 2 });
+  });
+
+  it("keeps the original asset with keepSource and honours only", async () => {
+    const root = await makeLegacyFixture();
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: true,
+      manifestPath: ".vref/manifest.json",
+      only: ["missing-id"],
+    });
+    expect(result.convertedCount).toBe(0);
+    expect(result.skippedCount).toBe(2);
+
+    const kept = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: true,
+      manifestPath: ".vref/manifest.json",
+      only: ["legacy"],
+    });
+    expect(kept.convertedCount).toBe(1);
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).resolves.toBeTruthy();
+  });
+
+  it("writes and removes a shared asset once when entries reuse it", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    // Ids are unique, but two entries may legitimately point at one file.
+    document.screenshots.push({ ...document.screenshots[0], id: "legacy-alias" });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    // Both entries are patched, but the file is counted, written, and unlinked once.
+    expect(result.convertedCount).toBe(2);
+    expect(result.conversions.every((item) => item.to === "screenshots/legacy.webp")).toBe(true);
+    expect(result.savedBytes).toBe(
+      (result.conversions[0]?.fromBytes ?? 0) - (result.conversions[0]?.toBytes ?? 0),
+    );
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).rejects.toThrow();
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toMatchObject({ screenshotCount: 3 });
+  });
+
+  it("reports a negative savedBytes when webp is larger than the source", async () => {
+    const root = await makeWebpFixture();
+    const { default: sharp } = await import("sharp");
+    // Seeded xorshift: high-entropy but deterministic, so jpeg cannot compress
+    // it and the lossless webp is reliably larger.
+    const noise = Buffer.alloc(128 * 128 * 3);
+    let seed = 0x9e3779b9;
+    for (let index = 0; index < noise.length; index += 1) {
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      noise[index] = (seed >>> 0) % 256;
+    }
+    // A lossy jpeg re-encoded to lossless webp legitimately grows.
+    const jpeg = await sharp(noise, { raw: { width: 128, height: 128, channels: 3 } })
+      .jpeg({ quality: 60 })
+      .toBuffer();
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    await writeFile(join(root, ".vref/screenshots/photo.jpg"), jpeg);
+    await writeFile(
+      join(root, ".vref/manifest.json"),
+      JSON.stringify({
+        version: 1,
+        title: "photo",
+        description: "d",
+        updatedAt: "2026-09-18T09:00:00.000Z",
+        screenshots: [
+          {
+            id: "photo",
+            title: "Photo",
+            group: "G",
+            platform: "Web",
+            device: "D",
+            viewport: { width: 128, height: 128 },
+            file: "screenshots/photo.jpg",
+            capturedAt: "2026-09-18T09:00:00.000Z",
+            sizeBytes: jpeg.byteLength,
+            tags: [],
+            notes: [],
+          },
+        ],
+      }),
+    );
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    // Reported honestly rather than clamped: a migration that costs bytes must say so.
+    expect(result.savedBytes).toBeLessThan(0);
+  });
+
+  it("refuses to converge two different assets on one webp target", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    // legacy.png and legacy.jpg are different images that both want legacy.webp.
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: "#ffffff" },
+    })
+      .jpeg()
+      .toBuffer();
+    await writeFile(join(root, ".vref/screenshots/legacy.jpg"), jpeg);
+    document.screenshots.push({
+      ...document.screenshots[0],
+      id: "legacy-jpg",
+      file: "screenshots/legacy.jpg",
+      sizeBytes: jpeg.byteLength,
+    });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow("both convert to");
+
+    // Nothing was written, so neither reference was lost.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/legacy.jpg"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
+  });
+
+  it("detects a target collision that differs only by filename case", async () => {
+    const root = await makeLegacyFixture();
+    const { default: sharp } = await import("sharp");
+    const jpeg = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: "#ffffff" },
+    })
+      .jpeg()
+      .toBuffer();
+    // On macOS and Windows these two resolve to one file; on Linux they do not.
+    // A committed .vref/ has to survive both, so the collision is refused
+    // regardless of the filesystem running the test.
+    await writeFile(join(root, ".vref/screenshots/LEGACY.jpg"), jpeg);
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    document.screenshots.push({
+      ...document.screenshots[0],
+      id: "legacy-upper",
+      file: "screenshots/LEGACY.jpg",
+      sizeBytes: jpeg.byteLength,
+    });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow("both convert to");
+
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(stat(join(root, ".vref/screenshots/LEGACY.jpg"))).resolves.toBeTruthy();
+  });
+
+  it("keeps a shared source that an unselected entry still references", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    document.screenshots.push({ ...document.screenshots[0], id: "legacy-alias" });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+      only: ["legacy"],
+    });
+
+    expect(result.convertedCount).toBe(1);
+    // legacy-alias still points at the png, so the png must survive and the
+    // manifest must still validate.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toMatchObject({ screenshotCount: 3 });
+  });
+
+  it("applies exif orientation before deriving dimensions", async () => {
+    const root = await makeWebpFixture();
+    const { default: sharp } = await import("sharp");
+    // Stored 64x48 but tagged "rotate 90", so the displayed image is 48x64.
+    const rotated = await sharp({
+      create: { width: 64, height: 48, channels: 3, background: "#09090b" },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    await writeFile(join(root, "rotated.jpg"), rotated);
+
+    const result = await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "rotated.jpg",
+    });
+
+    // Encoding drops the orientation tag, so the pixels must already be upright
+    // and the viewport must describe the upright result.
+    expect(result.screenshot.viewport).toEqual({ width: 48, height: 64 });
+    const written = await sharp(
+      await readFile(join(root, ".vref/screenshots/home.webp")),
+    ).metadata();
+    expect([written.width, written.height]).toEqual([48, 64]);
+  });
+
+  it("rejects an empty --only selector instead of converting everything", async () => {
+    const root = await makeLegacyFixture();
+
+    await expect(
+      Effect.runPromise(runCli(["convert", "--only", "--output", "json"], root)),
+    ).rejects.toThrow("without any value");
+    await expect(
+      Effect.runPromise(runCli(["convert", "--only=,,,", "--output", "json"], root)),
+    ).rejects.toThrow("without any value");
+
+    // The legacy asset is untouched by the rejected runs.
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+  });
+
+  it("rolls back a written asset when the manifest append fails", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    // Valid to read, impossible to write back: the append fails only after the
+    // asset has already landed, which is the path rollback exists for.
+    await chmod(join(root, ".vref/manifest.json"), 0o444);
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: false,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow();
+
+    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
+  });
+
+  it("reports a conversion plan without writing on a dry run", async () => {
+    const root = await makeLegacyFixture();
+    const before = await readFile(join(root, ".vref/manifest.json"), "utf8");
+
+    const result = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.convertedCount).toBe(1);
+    expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
+    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+  });
+
+  it("does not credit retained originals as saved bytes", async () => {
+    const root = await makeLegacyFixture();
+
+    const kept = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: true,
+      manifestPath: ".vref/manifest.json",
+    });
+    const removed = await convertGallery({
+      cwd: root,
+      dryRun: true,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    // Nothing is reclaimed under --keep-source, so the tree only grows.
+    expect(kept.savedBytes).toBe(-(kept.conversions[0]?.toBytes ?? 0));
+    expect(kept.savedBytes).toBeLessThan(0);
+    expect(removed.savedBytes).toBeGreaterThan(kept.savedBytes);
+  });
+
+  it("restores the tree when the conversion transaction fails", async () => {
+    const root = await makeLegacyFixture();
+    const before = await readFile(join(root, ".vref/manifest.json"), "utf8");
+    // Readable for the plan, unwritable for the commit.
+    await chmod(join(root, ".vref/manifest.json"), 0o444);
+
+    await expect(
+      convertGallery({
+        cwd: root,
+        dryRun: false,
+        force: false,
+        keepSource: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow();
+
+    // No half-written webp is left for a later run to trip over.
+    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
+  });
+
+  it("restores the replaced asset when a forced add fails", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+    const original = Buffer.from("original bytes");
+    await writeFile(join(root, ".vref/screenshots/home.webp"), original);
+    await chmod(join(root, ".vref/manifest.json"), 0o444);
+
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: true,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow();
+
+    const after = await readFile(join(root, ".vref/screenshots/home.webp"));
+    expect(after.equals(original)).toBe(true);
+  });
+
+  it("rejects a --manifest flag passed without a value", async () => {
+    const root = await makeLegacyFixture();
+
+    await expect(
+      Effect.runPromise(runCli(["convert", "--manifest", "--output", "json"], root)),
+    ).rejects.toThrow("without a value");
+    await expect(
+      Effect.runPromise(runCli(["validate", "--manifest=", "--output", "json"], root)),
+    ).rejects.toThrow("without a value");
+  });
+
+  it("runs screenshot add and convert through the cli with json output", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 32, 32);
+
+    const added = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(
+          [
+            "screenshot",
+            "add",
+            "capture.png",
+            "--json",
+            JSON.stringify(draftFor("home")),
+            "--output",
+            "json",
+            "--fields",
+            "file,reencoded",
+          ],
+          root,
+        ),
+      ),
+    );
+
+    expect(added.logs.join("\n")).toContain('"file": "screenshots/home.webp"');
+    expect(added.logs.join("\n")).not.toContain('"sourceBytes"');
+
+    const converted = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(["convert", "--output", "json", "--fields", "convertedCount"], root),
+      ),
+    );
+
+    expect(converted.logs.join("\n")).toContain('"convertedCount": 0');
+  });
+
+  it("rejects a screenshot add without a source path or json", async () => {
+    const root = await makeWebpFixture();
+
+    await expect(
+      Effect.runPromise(runCli(["screenshot", "add", "--output", "json"], root)),
+    ).rejects.toThrow("requires a source image path");
+    await expect(
+      Effect.runPromise(runCli(["screenshot", "add", "capture.png", "--output", "json"], root)),
+    ).rejects.toThrow("requires --json");
+    await expect(
+      Effect.runPromise(runCli(["screenshot", "remove", "--output", "json"], root)),
+    ).rejects.toThrow("vref screenshot add");
+  });
+
+  it("describes the webp pipeline and the screenshot draft contract", () => {
+    const schema = JSON.stringify(describeCli());
+
+    expect(schema).toContain('"outputFormat":"webp"');
+    expect(schema).toContain('"encoder":"sharp"');
+    expect(schema).toContain('"sourceFormats":[".jpg",".jpeg",".png",".webp"]');
+    expect(schema).toContain('"usedBy":"vref screenshot add --json"');
+    // Legacy assets must stay valid so existing repos keep building.
+    expect(schema).toContain('"allowedExtensions":[".jpg",".jpeg",".png",".webp"]');
+  });
+});
+
+function draftFor(id: string): VrefScreenshotDraft {
+  return {
+    id,
+    title: "Home",
+    group: "Main pages",
+    platform: "Web",
+    device: "Chrome 1440",
+    tags: ["home"],
+    notes: ["Home grid."],
+  };
+}
+
+function webpVariant(data: Buffer): string {
+  return data.subarray(12, 16).toString("latin1");
+}
+
+async function makePng(path: string, width: number, height: number): Promise<number> {
+  const { default: sharp } = await import("sharp");
+  const data = await sharp({
+    create: { width, height, channels: 3, background: { r: 9, g: 9, b: 11 } },
+  })
+    .png()
+    .toBuffer();
+  await writeFile(path, data);
+
+  return data.byteLength;
+}
+
+async function makeWebpFixture(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "vref-webp-"));
+  await mkdir(join(root, ".vref"), { recursive: true });
+  await writeFile(
+    join(root, ".vref/manifest.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        title: "put.io webp reference",
+        description: "Webp pipeline fixture.",
+        updatedAt: "2026-09-18T09:00:00.000Z",
+        screenshots: [],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  return root;
+}
+
+async function makeLegacyFixture(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "vref-legacy-"));
+  await mkdir(join(root, ".vref/screenshots"), { recursive: true });
+  const legacyBytes = await makePng(join(root, ".vref/screenshots/legacy.png"), 64, 48);
+  const currentPng = join(root, "current.png");
+  await makePng(currentPng, 32, 32);
+  const current = await encodeWebp({ sourcePath: currentPng });
+  await writeFile(join(root, ".vref/screenshots/current.webp"), current.data);
+
+  await writeFile(
+    join(root, ".vref/manifest.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        title: "legacy png gallery",
+        description: "Pre-webp reference set.",
+        updatedAt: "2026-09-18T09:00:00.000Z",
+        customField: "must survive",
+        screenshots: [
+          {
+            id: "legacy",
+            title: "Legacy",
+            group: "Main",
+            platform: "Web",
+            device: "Chrome",
+            viewport: { width: 64, height: 48 },
+            file: "screenshots/legacy.png",
+            capturedAt: "2026-09-18T09:00:00.000Z",
+            sizeBytes: legacyBytes,
+            tags: ["legacy"],
+            notes: [],
+            reviewer: "altay",
+          },
+          {
+            id: "current",
+            title: "Current",
+            group: "Main",
+            platform: "Web",
+            device: "Chrome",
+            viewport: { width: 32, height: 32 },
+            file: "screenshots/current.webp",
+            capturedAt: "2026-09-18T09:00:00.000Z",
+            sizeBytes: current.data.byteLength,
+            tags: ["current"],
+            notes: [],
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  return root;
+}

@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +37,7 @@ try {
   const error = requireRecord(errorOutput.error, "error details");
   assert.equal(error.code, "VREF_MANIFEST_READ_FAILED");
 
-  writeFixture(fixtureRoot);
+  await writeFixture(fixtureRoot);
 
   const validate = runCli(fixtureRoot, ["validate", "--output", "json"]);
   assert.equal(validate.status, 0, failureMessage("validate", validate));
@@ -52,19 +60,91 @@ try {
   const gallery = readFileSync(join(fixtureRoot, ".vref/index.html"), "utf8");
   assert.match(gallery, /vref smoke gallery/u);
   assert.match(gallery, /screenshots\/home\.png/u);
+
+  const convert = runCli(fixtureRoot, ["convert", "--output", "json"]);
+  assert.equal(convert.status, 0, failureMessage("convert", convert));
+
+  const convertResult = requireRecord(
+    parseRecord(convert.stdout, "convert output").result,
+    "convert result",
+  );
+  assert.equal(convertResult.convertedCount, 1);
+  assert.ok(
+    Number(convertResult.savedBytes) > 0,
+    `convert saved no bytes: ${String(convertResult.savedBytes)}`,
+  );
+  assert.ok(
+    !existsSync(join(fixtureRoot, ".vref/screenshots/home.png")),
+    "convert left the original png behind",
+  );
+
+  const add = runCli(fixtureRoot, [
+    "screenshot",
+    "add",
+    "capture.png",
+    "--json",
+    JSON.stringify({
+      id: "settings",
+      title: "Settings",
+      group: "Smoke",
+      platform: "Web",
+      device: "Fixture",
+      tags: ["smoke"],
+      notes: ["Packaged CLI ingest."],
+    }),
+    "--output",
+    "json",
+  ]);
+  assert.equal(add.status, 0, failureMessage("screenshot add", add));
+
+  const addResult = requireRecord(
+    parseRecord(add.stdout, "screenshot add output").result,
+    "screenshot add result",
+  );
+  assert.equal(addResult.file, "screenshots/settings.webp");
+  const addedScreenshot = requireRecord(addResult.screenshot, "added screenshot");
+  assert.equal(
+    addedScreenshot.sizeBytes,
+    statSync(join(fixtureRoot, ".vref/screenshots/settings.webp")).size,
+    "manifest sizeBytes does not match the encoded file",
+  );
+
+  const rebuild = runCli(fixtureRoot, ["build", "--output", "json"]);
+  assert.equal(rebuild.status, 0, failureMessage("rebuild", rebuild));
+
+  const webpGallery = readFileSync(join(fixtureRoot, ".vref/index.html"), "utf8");
+  assert.match(webpGallery, /screenshots\/home\.webp/u);
+  assert.match(webpGallery, /screenshots\/settings\.webp/u);
+  assert.doesNotMatch(webpGallery, /screenshots\/home\.png/u);
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
 }
 
 console.log(
-  JSON.stringify({ ok: true, checks: ["describe", "invalid-config", "validate", "build"] }),
+  JSON.stringify({
+    ok: true,
+    checks: [
+      "describe",
+      "invalid-config",
+      "validate",
+      "build",
+      "convert",
+      "screenshot-add",
+      "rebuild",
+    ],
+  }),
 );
 
-function writeFixture(root: string): void {
+async function writeFixture(root: string): Promise<void> {
   const vrefDirectory = join(root, ".vref");
   const screenshotDirectory = join(vrefDirectory, "screenshots");
   mkdirSync(screenshotDirectory, { recursive: true });
-  writeFileSync(join(screenshotDirectory, "home.png"), "image");
+
+  // Real pixels: the convert and screenshot add checks below exercise the
+  // encoder, which a placeholder string would fail on for the wrong reason.
+  const png = await makePng();
+  writeFileSync(join(screenshotDirectory, "home.png"), png);
+  writeFileSync(join(root, "capture.png"), png);
   writeFileSync(
     join(vrefDirectory, "manifest.json"),
     JSON.stringify(
@@ -80,10 +160,10 @@ function writeFixture(root: string): void {
             group: "Smoke",
             platform: "Web",
             device: "Fixture",
-            viewport: { width: 1280, height: 720 },
+            viewport: { width: 64, height: 48 },
             file: "screenshots/home.png",
             capturedAt: "2026-08-01T00:00:00.000Z",
-            sizeBytes: 5,
+            sizeBytes: png.byteLength,
             tags: ["smoke"],
             notes: ["Packaged CLI fixture."],
           },
@@ -93,6 +173,16 @@ function writeFixture(root: string): void {
       2,
     ),
   );
+}
+
+async function makePng(): Promise<Buffer> {
+  const { default: sharp } = await import("sharp");
+
+  return await sharp({
+    create: { width: 64, height: 48, channels: 3, background: { r: 9, g: 9, b: 11 } },
+  })
+    .png()
+    .toBuffer();
 }
 
 function runCli(cwd: string, args: readonly string[]): SpawnSyncReturns<string> {

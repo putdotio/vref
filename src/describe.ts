@@ -16,6 +16,20 @@ export function describeCli(): unknown {
       supported: ["human", "json"],
       fieldSelection: "top-level result fields with --fields",
     },
+    image: {
+      outputFormat: "webp",
+      outputExtension: ".webp",
+      lossless: true,
+      lossyFlag: "--quality",
+      sourceFormats: [".jpg", ".jpeg", ".png", ".webp"],
+      encoder: "sharp",
+      notes: [
+        "vref encodes webp only; --quality switches from lossless to lossy webp",
+        "webp sources are copied verbatim unless --quality forces a re-encode",
+        "viewport defaults to the source pixel size; pass viewport in --json for retina captures",
+        "manifest entries may still reference legacy .jpg, .jpeg, and .png assets",
+      ],
+    },
     automation: {
       defaultNonInteractiveOutput: "json",
       dryRunForMutations: true,
@@ -71,6 +85,88 @@ export function describeCli(): unknown {
           dir: { type: "string", default: ".vref" },
           host: { type: "string", default: "127.0.0.1" },
           port: { type: "number", default: 4173 },
+          outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+          fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
+        },
+      },
+      screenshot: {
+        add: {
+          description:
+            "Encode a captured source image to webp, write it under .vref/screenshots/, and append its manifest entry.",
+          mutates: [".vref/manifest.json", ".vref/screenshots/*.webp"],
+          positionals: [
+            { name: "source", required: true, description: "Path to the captured image." },
+          ],
+          options: {
+            manifest: { type: "string", default: ".vref/manifest.json" },
+            json: {
+              flag: "--json",
+              type: "object",
+              schema: "screenshotDraft",
+              required: true,
+            },
+            quality: {
+              flag: "--quality",
+              type: "number",
+              range: [1, 100],
+              description: "Encode lossy webp at this quality instead of lossless.",
+            },
+            force: {
+              type: "boolean",
+              flags: ["--force"],
+              default: false,
+              description: "Replace an existing screenshot asset.",
+            },
+            dryRun: {
+              type: "boolean",
+              flags: ["--dry-run", "--check"],
+              default: false,
+              description: "Encode and validate without writing the asset or the manifest.",
+            },
+            outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+            fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
+          },
+        },
+      },
+      convert: {
+        description:
+          "Re-encode non-webp manifest assets to webp and rewrite their manifest entries.",
+        mutates: [".vref/manifest.json", ".vref/screenshots/*"],
+        notes: [
+          "savedBytes is bytes removed minus bytes written; it is negative when the tree grows, including under --keep-source",
+          "re-encoding a lossy jpeg to lossless webp grows it, so pass --quality for jpeg sources",
+        ],
+        options: {
+          manifest: { type: "string", default: ".vref/manifest.json" },
+          only: {
+            flag: "--only",
+            type: "string",
+            description: "Comma-separated screenshot ids to convert.",
+          },
+          quality: {
+            flag: "--quality",
+            type: "number",
+            range: [1, 100],
+            description: "Encode lossy webp at this quality instead of lossless.",
+          },
+          keepSource: {
+            type: "boolean",
+            flags: ["--keep-source"],
+            default: false,
+            description: "Keep the original asset after converting.",
+          },
+          force: {
+            type: "boolean",
+            flags: ["--force"],
+            default: false,
+            description: "Replace an existing webp asset.",
+          },
+          dryRun: {
+            type: "boolean",
+            flags: ["--dry-run", "--check"],
+            default: false,
+            description: "Report the conversion plan without writing files.",
+          },
           outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
           fields: { flag: "--fields", type: "string", scope: "top-level result fields" },
         },
@@ -183,6 +279,17 @@ export function describeCli(): unknown {
               notes: { type: "array", required: true, items: { type: "string" } },
             },
           },
+        },
+      },
+      screenshotDraft: {
+        usedBy: "vref screenshot add --json",
+        requiredFields: ["id", "title", "group", "platform", "device"],
+        optionalFields: ["viewport", "file", "capturedAt", "tags", "notes"],
+        derivedFields: {
+          file: "screenshots/<id>.webp when omitted; must end in .webp",
+          sizeBytes: "always the encoded webp byte length",
+          viewport: "source image pixel dimensions when omitted",
+          capturedAt: "source file modification time when omitted",
         },
       },
       pathRules: [

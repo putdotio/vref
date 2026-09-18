@@ -43,8 +43,29 @@ const VrefManifestSchema = Schema.Struct({
   screenshots: Schema.Array(VrefScreenshotSchema),
 });
 
+/**
+ * The metadata half of `vref screenshot add`. Everything the encoder can derive
+ * from the image itself — `file`, `sizeBytes`, `viewport`, `capturedAt` — stays
+ * optional here so callers describe the screenshot and let vref measure it.
+ */
+const VrefScreenshotDraftSchema = Schema.Struct({
+  id: Identifier,
+  title: NonBlankString,
+  group: NonBlankString,
+  platform: NonBlankString,
+  device: NonBlankString,
+  viewport: Schema.optionalKey(VrefViewportSchema),
+  file: Schema.optionalKey(NonBlankString),
+  capturedAt: Schema.optionalKey(DateString),
+  tags: Schema.optionalKey(Schema.Array(Identifier)),
+  notes: Schema.optionalKey(Schema.Array(NonBlankString)),
+});
+
+export type VrefScreenshotDraft = typeof VrefScreenshotDraftSchema.Type;
+
 const decodeManifest = Schema.decodeUnknownSync(VrefManifestSchema);
 const decodeScreenshot = Schema.decodeUnknownSync(VrefScreenshotSchema);
+const decodeScreenshotDraft = Schema.decodeUnknownSync(VrefScreenshotDraftSchema);
 
 export async function readManifest(path: string): Promise<VrefManifest> {
   const { manifest } = await readManifestDocument(path);
@@ -95,6 +116,14 @@ export async function writeManifestDocument(
 
 export function screenshotFromJson(value: unknown, path: string): VrefScreenshot {
   return screenshotFromUnknown(value, path);
+}
+
+export function screenshotDraftFromJson(value: unknown, path: string): VrefScreenshotDraft {
+  try {
+    return decodeScreenshotDraft(value, { errors: "all" });
+  } catch (error) {
+    throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", `${path}: ${messageFrom(error)}`);
+  }
 }
 
 function manifestFromUnknown(value: unknown, path: string): VrefManifest {

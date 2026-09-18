@@ -16,5 +16,6 @@ Path rules:
 Privacy rules:
 
 - Do not commit private screenshots, auth codes, secrets, local IPs, real account identifiers, content IDs, or local absolute paths.
+- `vref screenshot add` re-encodes `.png` and `.jpg` sources, which drops their EXIF. A `.webp` source is copied verbatim and keeps its metadata; pass `--quality` to force a re-encode.
 - Keep raw or timestamped captures in ignored folders such as `dist/tmp/`.
 - Use synthetic or public-safe account state.
