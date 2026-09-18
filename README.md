@@ -79,17 +79,13 @@ vref describe --fields commands,automation
 
 ## Screenshots
 
-`vref` writes webp only. `screenshot add` accepts `.png`, `.jpg`, and `.webp`
-sources and encodes lossless webp by default, because references are pixel
-evidence: on flat UI captures lossless beats lossy q85 on size _and_ keeps text
-edges exact. Pass `--quality 1-100` for lossy webp on photo-heavy captures. A
-`.webp` source is copied verbatim rather than re-encoded.
+`vref` writes webp only, from `.png`, `.jpg`, or `.webp` sources. Encoding is
+lossless unless `--quality 1-100` asks for lossy; a `.webp` source is copied
+verbatim, keeping whatever fidelity it already had.
 
-The command derives what it can measure, so the manifest never drifts from the
-file: `file` defaults to `screenshots/<id>.webp`, `sizeBytes` is the encoded byte
-length, `viewport` is the image's pixel size, and `capturedAt` is the source
-file's modification time. Retina captures have pixel dimensions at 2x the CSS
-viewport, so pass `viewport` in `--json` explicitly for those.
+It fills in the derived half of the manifest entry, so those fields cannot drift
+from the file: `sizeBytes` and `viewport` from the encoded image, `capturedAt`
+from the source file's modification time, and `file` from the screenshot id.
 
 Preview an add without writing anything:
 
@@ -97,21 +93,22 @@ Preview an add without writing anything:
 vref screenshot add ./capture.png --json '{"id":"home",...}' --dry-run --output json
 ```
 
-Migrate an existing png or jpeg reference set. Manifest entries and assets are
-rewritten together, and the originals are removed unless `--keep-source`:
+Migrate an existing png or jpeg reference set. Legacy entries keep validating,
+so upgrading does not force this:
 
 ```bash
 vref convert --dry-run --output json
 vref convert
 ```
 
-Legacy `.jpg`, `.jpeg`, and `.png` manifest entries keep validating, so upgrading
-`vref` never breaks an existing gallery — convert when you choose to.
+The [Visual Reference Guide](./docs/VREF.md#image-format) covers the format
+choice, retina viewports, and what `convert` does to your originals.
 
 ## Manifest
 
 `vref` reads `.vref/manifest.json` by default and writes `.vref/index.html`.
-Screenshot `file` paths are relative to `.vref/` and must stay inside that directory.
+Screenshot `file` paths are relative to the manifest's directory and must stay
+inside it.
 
 ```json
 {
@@ -127,7 +124,7 @@ Screenshot `file` paths are relative to `.vref/` and must stay inside that direc
       "platform": "Roku",
       "device": "Roku 720p",
       "viewport": { "width": 1280, "height": 720 },
-      "file": "screenshots/roku-720p/home.jpg",
+      "file": "screenshots/roku-720p/home.webp",
       "capturedAt": "2026-05-19T13:34:00.000Z",
       "sizeBytes": 22788,
       "tags": ["home", "navigation"],
@@ -137,21 +134,19 @@ Screenshot `file` paths are relative to `.vref/` and must stay inside that direc
 }
 ```
 
-Append a metadata-only entry from raw JSON, for a screenshot file you are placing
-yourself. When you have the captured image, prefer `vref screenshot add` above —
-it encodes webp and measures the derived fields for you:
+Append a metadata-only entry for a screenshot file you are placing yourself.
+When you have the captured image, prefer `vref screenshot add` above:
 
 ```bash
-vref manifest add --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","viewport":{"width":1280,"height":720},"file":"screenshots/roku-720p/settings.jpg","capturedAt":"2026-05-19T13:35:00.000Z","sizeBytes":39716,"tags":["settings"],"notes":["Settings page."]}' --dry-run --output json
+vref manifest add --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","viewport":{"width":1280,"height":720},"file":"screenshots/roku-720p/settings.webp","capturedAt":"2026-05-19T13:35:00.000Z","sizeBytes":39716,"tags":["settings"],"notes":["Settings page."]}' --dry-run --output json
 ```
 
-Remove `--dry-run` after the preview looks correct. The command only edits
-manifest metadata; app repos still own screenshot capture and file updates.
+Remove `--dry-run` after the preview looks correct. This command only edits
+manifest metadata; it never encodes or copies the image.
 
 ## Docs
 
 - [Visual Reference Guide](./docs/VREF.md)
-- [Plan](./docs/PLAN.md)
 - [Distribution](./docs/DISTRIBUTION.md)
 - [vref skill](./skills/vref/SKILL.md)
 - [Agent guide](./AGENTS.md)

@@ -3,14 +3,13 @@
 ## Repo
 
 - Public TypeScript package and CLI for `@putdotio/vref`
-- Owns visual reference manifest validation, static gallery rendering, serving, and the reusable vref agent skill
-- App repos own their own `.vref/` folder and all capture mechanics
+- Owns webp encoding, manifest validation, static gallery rendering, serving, and the reusable vref agent skill
+- App repos own their own `.vref/` folder and all capture mechanics; vref takes over at the captured file
 
 ## Start Here
 
 - [Overview](./README.md)
 - [Visual Reference Guide](./docs/VREF.md)
-- [Plan](./docs/PLAN.md)
 - [Distribution](./docs/DISTRIBUTION.md)
 - [Security](./SECURITY.md)
 - [vref Skill](./skills/vref/SKILL.md)

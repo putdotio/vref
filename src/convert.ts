@@ -140,7 +140,7 @@ function isStillReferenced(
     (raw) =>
       Predicate.isObject(raw) &&
       typeof raw.file === "string" &&
-      join(vrefDir, raw.file).toLowerCase() === source,
+      join(vrefDir, raw.file.replaceAll("\\", "/")).toLowerCase() === source,
   );
 }
 
