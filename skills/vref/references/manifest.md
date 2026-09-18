@@ -41,6 +41,7 @@ Rules:
 - `assetExists` reports whether the referenced screenshot already exists.
 - After updating screenshot files, run `vref validate --output json --fields screenshotCount,groupCount,deviceCount`.
 - After removing an entry, run `vref validate --output json --fields orphanAssets`: it lists image files nothing references, relative to the manifest directory `--manifest` selected. Deleting the leftover is a manual step.
-- Top-level `--fields` values only; do not use dotted paths. `vref describe` lists the accepted values per command.
+- Top-level `--fields` values only; do not use dotted paths. `vref describe` lists the accepted values per command; read them from it rather than hard-coding a list.
+- `describe` reports its own shape as `schemaVersion`, currently `2`. Fields are renamed and removed between versions, so check it before relying on a field that is not in the command's advertised `--fields` values.
 - An unrecognised flag name is rejected with `VREF_UNKNOWN_FLAG`, and a path flag passed without a value with `VREF_EMPTY_FLAG`. Neither falls through to a default, so a typo cannot quietly run the destructive branch.
 - Every failure exits 1, and under `--output json` prints `{ "ok": false, "error": { "code", "message" } }`. Human output carries only the message, so ask for JSON when you need the code. Match on `code`; `vref describe --fields errors` lists every code the CLI can return.

@@ -51,6 +51,7 @@ guide doesn't cover, search through the source code in `node_modules/effect/src`
 - Do not add visual diffing, PR comments, cross-repo aggregation, hosted services, or platform-specific capture without a new design pass
 - Use typed manifest parsing and structured CLI output; agents should prefer `--output json`
 - Use `--fields` to keep JSON responses small when only a few top-level result fields are needed
+- `vref describe` advertises its own `schemaVersion` and the `--fields` values each command accepts; renaming or removing one is a breaking change that needs a `!` commit and a note in the guide and the skill
 - Prefer `vref validate --output json` or `vref build --check --output json` before any workflow that should not mutate files
 - Update docs and the vref skill when command behavior or screenshot safety rules change
 
