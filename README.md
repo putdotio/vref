@@ -85,9 +85,11 @@ verbatim, keeping whatever fidelity it already had — but only when its bytes a
 really webp and it carries no EXIF orientation, since a verbatim copy cannot be
 uprighted.
 
-It fills in the derived half of the manifest entry, so those fields cannot drift
-from the file: `sizeBytes` and `viewport` from the encoded image, `capturedAt`
-from the source file's modification time, and `file` from the screenshot id.
+It fills in the derived half of the manifest entry: `sizeBytes` from the encoded
+byte length, `viewport` from the encoded pixel dimensions, `capturedAt` from the
+source file's modification time, and `file` from the screenshot id. `sizeBytes`
+is always measured, so it cannot drift from the file; the other three are
+defaults your `--json` may override.
 
 Preview an add without writing anything:
 
@@ -149,6 +151,7 @@ manifest metadata; it never encodes or copies the image.
 ## Docs
 
 - [Visual Reference Guide](./docs/VREF.md)
+- [Glossary](./CONTEXT.md)
 - [Distribution](./docs/DISTRIBUTION.md)
 - [vref skill](./skills/vref/SKILL.md)
 - [Agent guide](./AGENTS.md)

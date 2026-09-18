@@ -30,8 +30,8 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
     );
   }
 
-  const assetPath = join(paths.vrefDir, options.screenshot.file);
-  const assetExists = await screenshotAssetExists(paths.vrefDir, assetPath);
+  const assetPath = join(paths.manifestDir, options.screenshot.file);
+  const assetExists = await screenshotAssetExists(paths.manifestDir, assetPath);
   const nextScreenshots = [...readRawScreenshots(document), options.screenshot];
   const nextDocument = {
     ...document,

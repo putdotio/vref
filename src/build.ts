@@ -43,8 +43,8 @@ export async function validateGallery(options: {
   const manifest = await readManifest(paths.manifestPath);
 
   for (const screenshot of manifest.screenshots) {
-    const assetPath = join(paths.vrefDir, screenshot.file);
-    await assertNoSymlinkInPath(paths.vrefDir, assetPath, "screenshot asset");
+    const assetPath = join(paths.manifestDir, screenshot.file);
+    await assertNoSymlinkInPath(paths.manifestDir, assetPath, "screenshot asset");
     try {
       const assetStats = await stat(assetPath);
       if (!assetStats.isFile()) {

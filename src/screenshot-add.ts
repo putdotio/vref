@@ -54,8 +54,8 @@ export async function addScreenshotFromSource(
     );
   }
 
-  const assetPath = join(paths.vrefDir, file);
-  await assertNoSymlinkInPath(paths.vrefDir, assetPath, "screenshot asset");
+  const assetPath = join(paths.manifestDir, file);
+  await assertNoSymlinkInPath(paths.manifestDir, assetPath, "screenshot asset");
   await assertWritableTarget(assetPath, file, options.force);
 
   const sourcePath = resolve(options.cwd, options.sourcePath);
@@ -92,7 +92,7 @@ export async function addScreenshotFromSource(
     // before writing it, so a failure mid-write would otherwise leave a corrupt
     // file that manifest entries still point at.
     if (!options.dryRun) {
-      await writeAsset(paths.vrefDir, assetPath, encoded.data);
+      await writeAsset(paths.manifestDir, assetPath, encoded.data);
     }
 
     added = await addScreenshot({
@@ -103,7 +103,7 @@ export async function addScreenshotFromSource(
     });
   } catch (error) {
     if (!options.dryRun) {
-      await restoreAsset(paths.vrefDir, assetPath, replaced);
+      await restoreAsset(paths.manifestDir, assetPath, replaced);
     }
     throw error;
   }

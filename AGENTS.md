@@ -9,6 +9,7 @@
 ## Start Here
 
 - [Overview](./README.md)
+- [Glossary](./CONTEXT.md) for what a reference, entry, asset, and source each mean here
 - [Visual Reference Guide](./docs/VREF.md)
 - [Distribution](./docs/DISTRIBUTION.md)
 - [Security](./SECURITY.md)

@@ -66,9 +66,11 @@ References are webp; sources may be `.png`, `.jpg`, or `.webp`. Legacy `.jpg`,
 
 Do not hand-write `sizeBytes` or `capturedAt` for `screenshot add`; it fills them
 in from the encoded image and the source file's mtime, and a hand-typed value
-drifts from the file. Two fields are worth setting deliberately: `viewport` for a
-retina capture, whose pixel dimensions are 2x the CSS viewport, and `file` when
-the gallery needs a nested path instead of the default `screenshots/<id>.webp`.
+drifts from the file. Two fields are worth setting deliberately: `viewport`,
+which records the logical dimensions a reference represents rather than the
+stored pixels it defaults to, so any retina, scaled, or cropped capture must
+state its own; and `file`, when the gallery needs a nested path instead of the
+default `screenshots/<id>.webp`.
 
 ## Command Notes
 

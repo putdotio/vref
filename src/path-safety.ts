@@ -5,7 +5,7 @@ import { VrefError } from "./errors.js";
 export type WorkspacePaths = {
   cwd: string;
   manifestPath: string;
-  vrefDir: string;
+  manifestDir: string;
 };
 
 export function workspacePaths(cwd: string, manifestPath: string): WorkspacePaths {
@@ -15,7 +15,7 @@ export function workspacePaths(cwd: string, manifestPath: string): WorkspacePath
   return {
     cwd: resolvedCwd,
     manifestPath: resolvedManifest,
-    vrefDir: dirname(resolvedManifest),
+    manifestDir: dirname(resolvedManifest),
   };
 }
 
