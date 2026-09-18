@@ -1,5 +1,5 @@
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import process from "node:process";
+import { chmod, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { DateTime, Option, Predicate, Schema } from "effect";
 import { VrefError } from "./errors.js";
 import { assertSupportedImage, safeManifestAssetPath } from "./path-safety.js";
@@ -124,14 +124,33 @@ export async function writeManifestDocument(
  * fragment, and removes any need to keep a copy around to restore.
  */
 async function writeManifestAtomically(path: string, contents: string): Promise<void> {
-  const temporaryPath = `${path}.${process.pid}.tmp`;
+  const mode = await existingMode(path);
+  // Unpredictable name plus an exclusive create: a guessable sibling could be
+  // pre-planted as a symlink, and a plain write would follow it out of the
+  // workspace and then rename the link itself into place as the manifest.
+  const temporaryPath = `${path}.${randomBytes(8).toString("hex")}.tmp`;
 
   try {
-    await writeFile(temporaryPath, contents);
+    await writeFile(temporaryPath, contents, { flag: "wx" });
+    // Replacing the inode would otherwise reset a deliberately private manifest
+    // to the default 0644.
+    if (mode !== undefined) {
+      await chmod(temporaryPath, mode);
+    }
     await rename(temporaryPath, path);
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
     throw error;
+  }
+}
+
+async function existingMode(path: string): Promise<number | undefined> {
+  try {
+    const stats = await stat(path);
+
+    return stats.mode & 0o777;
+  } catch {
+    return undefined;
   }
 }
 

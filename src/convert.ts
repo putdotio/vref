@@ -194,8 +194,15 @@ function isStillReferenced(
 async function readIfExists(path: string): Promise<Buffer | undefined> {
   try {
     return await readFile(path);
-  } catch {
-    return undefined;
+  } catch (error) {
+    // Only a missing file means there is nothing to put back. Any other read
+    // failure must abort before the target is registered or touched, or the
+    // rollback would delete a file that was already there.
+    if (hasErrorCode(error, "ENOENT")) {
+      return undefined;
+    }
+
+    throw error;
   }
 }
 
@@ -351,4 +358,8 @@ async function targetState(
 
     return { exists: false, size: 0 };
   }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

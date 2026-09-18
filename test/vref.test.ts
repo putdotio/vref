@@ -1,6 +1,7 @@
 import {
   chmod,
   mkdir,
+  readdir,
   mkdtemp,
   readFile,
   realpath,
@@ -1749,6 +1750,30 @@ describe("vref webp pipeline", () => {
     await chmod(join(root, ".vref/screenshots"), 0o755);
     // The failure never touched the manifest, so nothing may have rewritten it.
     expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
+  });
+
+  it("preserves manifest permissions and refuses a planted temp symlink", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+    const manifestPath = join(root, ".vref/manifest.json");
+    await chmod(manifestPath, 0o600);
+    const outsider = join(root, "outside.json");
+    await writeFile(outsider, "untouched");
+
+    await addScreenshotFromSource({
+      cwd: root,
+      draft: draftFor("home"),
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+
+    // Replacing the inode must not widen a deliberately private manifest.
+    expect((await stat(manifestPath)).mode & 0o777).toBe(0o600);
+    // Nothing may be written through a sibling path outside the workspace.
+    expect(await readFile(outsider, "utf8")).toBe("untouched");
+    expect((await readdir(join(root, ".vref"))).filter((n) => n.endsWith(".tmp"))).toEqual([]);
   });
 
   it("reports a conversion plan without writing on a dry run", async () => {
