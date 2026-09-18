@@ -1,10 +1,11 @@
 import { Schema } from "effect";
+import { VREF_ERROR_CODES, type VrefErrorCode, type VrefErrorJson } from "./error-codes.js";
 
 export class VrefError extends Schema.TaggedError<VrefError>()("VrefError", {
-  code: Schema.String,
+  code: Schema.Literals(VREF_ERROR_CODES),
   message: Schema.String,
 }) {
-  constructor(code: string, message: string) {
+  constructor(code: VrefErrorCode, message: string) {
     super({ code, message });
   }
 }
@@ -21,10 +22,7 @@ export function normalizeError(error: unknown): VrefError {
   return new VrefError("VREF_UNKNOWN_THROW", "Unknown error");
 }
 
-export function errorToJson(error: unknown): {
-  ok: false;
-  error: { code: string; message: string };
-} {
+export function errorToJson(error: unknown): VrefErrorJson {
   const normalized = normalizeError(error);
 
   return {

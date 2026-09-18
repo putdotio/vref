@@ -29,6 +29,7 @@ import {
 } from "../src/cli.js";
 import { convertGallery } from "../src/convert.js";
 import { describeCli } from "../src/describe.js";
+import { VREF_ERROR_CODES } from "../src/error-codes.js";
 import { VrefError } from "../src/errors.js";
 import { encodeWebp } from "../src/image.js";
 import { readManifest } from "../src/manifest.js";
@@ -2319,6 +2320,94 @@ describe("vref webp pipeline", () => {
     expect(schema).toContain('"usedBy":"vref screenshot add --json"');
     // Legacy assets must stay valid so existing repos keep building.
     expect(schema).toContain('"allowedExtensions":[".jpg",".jpeg",".png",".webp"]');
+  });
+});
+
+describe("orphan assets", () => {
+  it("reports image files under the manifest directory no entry references", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/roku-720p/stale.webp"), "left behind");
+    await writeFile(join(root, ".vref/screenshots/dropped.PNG"), "left behind");
+    await writeFile(join(root, ".vref/notes.txt"), "not an image");
+    await writeFile(join(root, ".vref/index.html"), "<html></html>");
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([
+      "screenshots/dropped.PNG",
+      "screenshots/roku-720p/stale.webp",
+    ]);
+    expect(result.screenshotCount).toBe(1);
+  });
+
+  it("reports nothing when every asset is referenced", async () => {
+    const root = await makeFixture();
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([]);
+  });
+
+  it("never walks out of the manifest directory through a symlink", async () => {
+    const root = await makeFixture();
+    const outside = join(root, "outside");
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, "elsewhere.webp"), "not ours");
+    await symlink(outside, join(root, ".vref/linked"));
+
+    const result = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+
+    expect(result.orphanAssets).toEqual([]);
+  });
+
+  it("surfaces orphans through validate and build --check", async () => {
+    const root = await makeFixture();
+    await writeFile(join(root, ".vref/screenshots/stale.webp"), "left behind");
+
+    const human = await captureConsoleLog(() => Effect.runPromise(runCli(["validate"], root)));
+    const json = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(["build", "--check", "--output", "json", "--fields", "orphanAssets"], root),
+      ),
+    );
+
+    expect(human.logs.join("\n")).toBe(
+      "validated 1 references; 1 unreferenced: screenshots/stale.webp",
+    );
+    expect(json.logs.join("\n")).toContain('"screenshots/stale.webp"');
+  });
+});
+
+describe("error codes", () => {
+  it("publishes exactly the codes the source throws", async () => {
+    const sourceDir = new URL("../src/", import.meta.url);
+    const thrown = new Set<string>();
+
+    for (const file of await readdir(sourceDir)) {
+      if (!file.endsWith(".ts")) {
+        continue;
+      }
+
+      const source = await readFile(new URL(file, sourceDir), "utf8");
+      for (const match of source.matchAll(/new VrefError\(\s*"(VREF_[A-Z_]+)"/gu)) {
+        thrown.add(match[1] as string);
+      }
+    }
+
+    // The constructor's parameter type covers the other direction: a code that
+    // is not in the list cannot be thrown at all. This catches the leftover —
+    // a code kept in the published vocabulary after its throw site went away.
+    expect([...VREF_ERROR_CODES].sort()).toEqual([...thrown].sort());
+  });
+
+  it("describes the error contract it publishes", () => {
+    const schema = describeCli() as {
+      errors: { codes: readonly string[]; exitCode: number; shape: string };
+    };
+
+    expect(schema.errors.codes).toEqual(VREF_ERROR_CODES);
+    expect(schema.errors.exitCode).toBe(1);
+    expect(schema.errors.shape).toBe("{ ok: false, error: { code, message } }");
   });
 });
 

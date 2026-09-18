@@ -38,6 +38,11 @@ export type VrefValidateResult = {
   screenshotCount: number;
   groupCount: number;
   deviceCount: number;
+  /**
+   * Image files under the manifest directory no entry references, relative to
+   * that directory. Reported, never fatal.
+   */
+  orphanAssets: string[];
 };
 
 export type VrefScreenshotAddResult = {

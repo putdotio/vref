@@ -12,6 +12,7 @@ import { addScreenshot, decodeScreenshotDraftJson, decodeScreenshotJson } from "
 import { addScreenshotFromSource } from "./screenshot-add.js";
 import { parseFields, renderJsonError, renderJsonResult, type OutputFormat } from "./output.js";
 import { serve } from "./serve.js";
+import type { VrefValidateResult } from "./types.js";
 
 const DEFAULT_MANIFEST = ".vref/manifest.json";
 const DEFAULT_OUTPUT = ".vref/index.html";
@@ -29,7 +30,7 @@ export const COMMON_FLAGS = ["output", "fields", "help"] as const;
  */
 export const COMMAND_FIELDS: Record<string, readonly string[]> = {
   build: ["manifestPath", "outputPath", "screenshotCount", "groupCount", "deviceCount"],
-  validate: ["manifestPath", "screenshotCount", "groupCount", "deviceCount"],
+  validate: ["manifestPath", "screenshotCount", "groupCount", "deviceCount", "orphanAssets"],
   serve: ["dir", "host", "port", "url"],
   describe: [
     "name",
@@ -40,6 +41,7 @@ export const COMMAND_FIELDS: Record<string, readonly string[]> = {
     "image",
     "automation",
     "commands",
+    "errors",
     "manifest",
   ],
   manifest: ["assetExists", "dryRun", "manifestPath", "screenshot", "screenshotCount"],
@@ -120,9 +122,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
             manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
           }),
         );
-        yield* Effect.sync(() =>
-          print(args, result, `validated ${result.screenshotCount} references`),
-        );
+        yield* Effect.sync(() => print(args, result, validateSummary(result)));
         return;
       }
 
@@ -146,9 +146,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
           manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
         }),
       );
-      yield* Effect.sync(() =>
-        print(args, result, `validated ${result.screenshotCount} references`),
-      );
+      yield* Effect.sync(() => print(args, result, validateSummary(result)));
       return;
     }
 
@@ -530,6 +528,18 @@ function optionalPositiveInteger(
   }
 
   return Effect.fail(new VrefError("VREF_INVALID_NUMBER", `--${key} must be a positive integer`));
+}
+
+/**
+ * Orphans are not a failure, so the human line is the only place they surface
+ * outside `--output json`.
+ */
+function validateSummary(result: VrefValidateResult): string {
+  const summary = `validated ${result.screenshotCount} references`;
+
+  return result.orphanAssets.length === 0
+    ? summary
+    : `${summary}; ${result.orphanAssets.length} unreferenced: ${result.orphanAssets.join(", ")}`;
 }
 
 function print(args: ParsedArgs, result: unknown, human: string): void {

@@ -68,6 +68,11 @@ refused even when overwriting is otherwise permitted, because the replacement
 would leave that entry describing an image it no longer points at.
 _Avoid_: taken, in use, locked
 
+**Orphan**:
+An asset no entry claims. `validate` names them; nothing deletes them, and
+having one is not an error — a capture may simply be waiting for its entry.
+_Avoid_: unused file, stale asset, dangling
+
 ### Taxonomy
 
 **Group**:

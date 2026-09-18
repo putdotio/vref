@@ -40,5 +40,7 @@ Rules:
 - Do not hand-write `updatedAt`. Every non-dry-run manifest write stamps it.
 - `assetExists` reports whether the referenced screenshot already exists.
 - After updating screenshot files, run `vref validate --output json --fields screenshotCount,groupCount,deviceCount`.
+- After removing an entry, check `orphanAssets` from `vref validate --output json`: it lists image files under `.vref/` nothing references, and deleting the leftover is a manual step.
 - Top-level `--fields` values only; do not use dotted paths. `vref describe` lists the accepted values per command.
 - An unrecognised flag name is rejected with `VREF_UNKNOWN_FLAG`, and a path flag passed without a value with `VREF_EMPTY_FLAG`. Neither falls through to a default, so a typo cannot quietly run the destructive branch.
+- Every failure is `{ "ok": false, "error": { "code", "message" } }` with exit 1. Match on `code`; `vref describe --fields errors` lists every code the CLI can return.
