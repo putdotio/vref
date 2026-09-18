@@ -9,10 +9,6 @@ peerDependencyRules:
     - vite
 allowBuilds:
   msgpackr-extract: false
-minimumReleaseAgeExclude:
-  - "@effect/platform-node-shared@4.0.0-beta.107"
-  - "@effect/platform-node@4.0.0-beta.107"
-  - effect@4.0.0-beta.107
 ignoredBuiltDependencies:
   - msgpackr-extract
 catalog:
