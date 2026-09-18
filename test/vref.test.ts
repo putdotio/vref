@@ -1226,7 +1226,7 @@ describe("vref webp pipeline", () => {
 
     expect(result.dryRun).toBe(true);
     expect(result.screenshot.sizeBytes).toBeGreaterThan(0);
-    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(false);
     expect((await readManifest(join(root, ".vref/manifest.json"))).screenshots).toHaveLength(0);
   });
 
@@ -1254,7 +1254,7 @@ describe("vref webp pipeline", () => {
       }),
     ).rejects.toMatchObject({ code: "VREF_MANIFEST_DUPLICATE_ID" });
     await chmod(join(root, ".vref"), 0o755);
-    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(false);
   });
 
   it("refuses to overwrite an existing asset without force", async () => {
@@ -1459,7 +1459,7 @@ describe("vref webp pipeline", () => {
     });
 
     // The original is gone and the rewritten manifest still resolves.
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(false);
     await expect(
       validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
     ).resolves.toMatchObject({ screenshotCount: 2 });
@@ -1489,8 +1489,8 @@ describe("vref webp pipeline", () => {
       only: ["legacy"],
     });
     expect(kept.convertedCount).toBe(1);
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
-    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
+    expect(existsSync(join(root, ".vref/screenshots/legacy.webp"))).toBe(true);
   });
 
   it("writes and removes a shared asset once when entries reuse it", async () => {
@@ -1516,7 +1516,7 @@ describe("vref webp pipeline", () => {
     expect(result.savedBytes).toBe(
       (result.conversions[0]?.fromBytes ?? 0) - (result.conversions[0]?.toBytes ?? 0),
     );
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(false);
     await expect(
       validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
     ).resolves.toMatchObject({ screenshotCount: 3 });
@@ -1610,9 +1610,9 @@ describe("vref webp pipeline", () => {
     ).rejects.toMatchObject({ code: "VREF_CONVERT_TARGET_COLLISION" });
 
     // Nothing was written, so neither reference was lost.
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
-    await expect(stat(join(root, ".vref/screenshots/legacy.jpg"))).resolves.toBeTruthy();
-    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
+    expect(existsSync(join(root, ".vref/screenshots/legacy.jpg"))).toBe(true);
+    expect(existsSync(join(root, ".vref/screenshots/legacy.webp"))).toBe(false);
   });
 
   it("detects a target collision that differs only by filename case", async () => {
@@ -1648,8 +1648,8 @@ describe("vref webp pipeline", () => {
       }),
     ).rejects.toMatchObject({ code: "VREF_CONVERT_TARGET_COLLISION" });
 
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
-    await expect(stat(join(root, ".vref/screenshots/LEGACY.jpg"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
+    expect(existsSync(join(root, ".vref/screenshots/LEGACY.jpg"))).toBe(true);
   });
 
   it("keeps a shared source that an unselected entry still references", async () => {
@@ -1672,7 +1672,7 @@ describe("vref webp pipeline", () => {
     expect(result.convertedCount).toBe(1);
     // legacy-alias still points at the png, so the png must survive and the
     // manifest must still validate.
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
     await expect(
       validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
     ).resolves.toMatchObject({ screenshotCount: 3 });
@@ -1701,7 +1701,7 @@ describe("vref webp pipeline", () => {
       only: ["legacy"],
     });
 
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
     await expect(
       validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
     ).resolves.toMatchObject({ screenshotCount: 3 });
@@ -1748,7 +1748,7 @@ describe("vref webp pipeline", () => {
     ).rejects.toMatchObject({ code: "VREF_EMPTY_SELECTOR" });
 
     // The legacy asset is untouched by the rejected runs.
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
   });
 
   it("rolls back a written asset when the manifest append fails", async () => {
@@ -1771,7 +1771,7 @@ describe("vref webp pipeline", () => {
       }),
     ).rejects.toThrow();
 
-    await expect(stat(join(root, ".vref/screenshots/home.webp"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(false);
   });
 
   it("refuses a target collision that differs only by unicode normalization", async () => {
@@ -1950,8 +1950,8 @@ describe("vref webp pipeline", () => {
     expect(result.dryRun).toBe(true);
     expect(result.convertedCount).toBe(1);
     expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
-    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.webp"))).toBe(false);
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
   });
 
   it("does not credit retained originals as saved bytes", async () => {
@@ -1996,8 +1996,8 @@ describe("vref webp pipeline", () => {
 
     await chmod(join(root, ".vref"), 0o755);
     // No half-written webp is left for a later run to trip over.
-    await expect(stat(join(root, ".vref/screenshots/legacy.webp"))).rejects.toThrow();
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.webp"))).toBe(false);
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
     expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
   });
 
@@ -2095,7 +2095,7 @@ describe("vref webp pipeline", () => {
 
     // The typo must not have reached the conversion: manifest and originals intact.
     expect(await readFile(join(root, ".vref/manifest.json"), "utf8")).toBe(before);
-    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeDefined();
+    expect(existsSync(join(root, ".vref/screenshots/legacy.png"))).toBe(true);
   });
 
   it("refuses an unknown flag on every command that takes one", async () => {
@@ -2124,7 +2124,7 @@ describe("vref webp pipeline", () => {
         runCli(["build", "--out", ".vref/index.html", "--output-path=", "--output", "json"], root),
       ),
     ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
-    await expect(stat(join(root, ".vref/index.html"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/index.html"))).toBe(false);
   });
 
   it("refuses a path flag that was passed without a value", async () => {
@@ -2144,7 +2144,7 @@ describe("vref webp pipeline", () => {
     ).rejects.toMatchObject({ code: "VREF_EMPTY_FLAG" });
 
     // The default gallery must not have been written by the malformed build.
-    await expect(stat(join(root, ".vref/index.html"))).rejects.toThrow();
+    expect(existsSync(join(root, ".vref/index.html"))).toBe(false);
   });
 
   it("still accepts every documented flag", async () => {
@@ -2307,7 +2307,7 @@ describe("vref webp pipeline", () => {
     const buildOptions = optionsFor(schema.commands.build);
     const checkValues = (buildOptions?.fields as { checkValues?: readonly string[] } | undefined)
       ?.checkValues;
-    expect([...(checkValues ?? [])].sort()).toEqual([...(COMMAND_FIELDS.validate ?? [])].sort());
+    expect([...(checkValues ?? [])].sort()).toEqual([...COMMAND_FIELDS.validate].sort());
 
     expect(mismatches).toEqual([]);
   });

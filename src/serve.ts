@@ -225,12 +225,6 @@ export async function resolveServableFile(root: string, relativePath: string): P
 }
 
 /**
- * Bracket an IPv6 literal so it can carry a port.
- *
- * `http://::1:4173/` is not a URL. A hostname or IPv4 address never contains a
- * colon, so the colon is the whole test.
- */
-/**
  * Headers every response carries.
  *
  * `nosniff` matters because an unknown extension under the served directory
@@ -292,13 +286,13 @@ function canonicalHost(host: string): string {
   }
 }
 
+/**
+ * Bracket an IPv6 literal so it can carry a port.
+ *
+ * `http://::1:4173/` is not a URL. A hostname or IPv4 address never contains a
+ * colon, so the colon is the whole test.
+ */
 function formatHost(host: string): string {
-  // Defensive only: listen() rejects a bracketed host with ENOTFOUND, so this
-  // never runs from the CLI.
-  if (host.startsWith("[") && host.endsWith("]")) {
-    return host;
-  }
-
   return host.includes(":") ? `[${host}]` : host;
 }
 
