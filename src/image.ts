@@ -56,13 +56,15 @@ export async function encodeWebp(options: EncodeWebpOptions): Promise<EncodedIma
 
   const sharp = await loadSharp();
   const source = await readSource(options.sourcePath);
+  const metadata = await readMetadata(sharp, source, options.sourcePath);
 
   // A webp source is already in the target format, so re-encoding it would cost
-  // fidelity for nothing. Copy it verbatim unless an explicit quality asks for
-  // a re-encode.
-  if (isWebpFile(options.sourcePath) && options.quality === undefined) {
-    const metadata = await readMetadata(sharp, source, options.sourcePath);
-
+  // fidelity for nothing. Copy it verbatim — but only when the bytes really are
+  // webp, and only when there is no orientation tag to apply, since a verbatim
+  // copy cannot be rotated and would leave the image stored sideways. The
+  // extension is not evidence: a png renamed to .webp would otherwise be filed
+  // as webp and served with the wrong content type.
+  if (metadata.format === "webp" && options.quality === undefined && !metadata.rotated) {
     return { data: source, width: metadata.width, height: metadata.height, reencoded: false };
   }
 
@@ -114,18 +116,25 @@ async function readSource(sourcePath: string): Promise<Buffer> {
   }
 }
 
+type SourceMetadata = VrefViewport & { format: string | undefined; rotated: boolean };
+
 async function readMetadata(
   sharp: SharpModule,
   source: Buffer,
   sourcePath: string,
-): Promise<VrefViewport> {
+): Promise<SourceMetadata> {
   let width: number | undefined;
   let height: number | undefined;
+  let format: string | undefined;
+  let rotated = false;
 
   try {
     const metadata = await sharp(source).metadata();
     width = metadata.width;
     height = metadata.height;
+    format = metadata.format;
+    // Anything above 1 means the stored pixels need rotating or flipping.
+    rotated = metadata.orientation !== undefined && metadata.orientation > 1;
   } catch (error) {
     throw new VrefError(
       "VREF_IMAGE_READ_FAILED",
@@ -140,7 +149,7 @@ async function readMetadata(
     );
   }
 
-  return { width, height };
+  return { width, height, format, rotated };
 }
 
 function assertQuality(quality: number | undefined): void {

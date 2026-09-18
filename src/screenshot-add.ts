@@ -39,6 +39,21 @@ export async function addScreenshotFromSource(
   }
 
   const file = targetFile(options.draft);
+
+  // Even --force must not take a file another entry points at: overwriting it
+  // swaps the image under that entry while its sizeBytes and viewport keep
+  // describing the old one, and validate still passes because the file exists.
+  const claimant = manifest.screenshots.find(
+    (screenshot) =>
+      screenshot.file.normalize("NFC").toLowerCase() === file.normalize("NFC").toLowerCase(),
+  );
+  if (claimant !== undefined) {
+    throw new VrefError(
+      "VREF_ASSET_CLAIMED",
+      `screenshot "${claimant.id}" already references ${file}`,
+    );
+  }
+
   const assetPath = join(paths.vrefDir, file);
   await assertNoSymlinkInPath(paths.vrefDir, assetPath, "screenshot asset");
   await assertWritableTarget(assetPath, file, options.force);

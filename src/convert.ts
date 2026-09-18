@@ -1,4 +1,4 @@
-import { readFile, rm, stat, unlink } from "node:fs/promises";
+import { readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Predicate } from "effect";
 import { VrefError } from "./errors.js";
@@ -21,6 +21,7 @@ export type ConvertOptions = {
 type PendingConversion = {
   conversion: VrefConversion;
   data: Buffer;
+  replacedBytes: number;
   sourceAssetPath: string;
   targetAssetPath: string;
 };
@@ -43,6 +44,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
   }
 
   const assets = collectAssets(pending);
+  assertTargetsUnclaimed(paths.vrefDir, assets, pending, document);
 
   // Patch in memory first so the removal decision and the reported delta both
   // see the manifest as it will finally read. Nothing is written on a dry run.
@@ -70,6 +72,9 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     0,
   );
   const removedBytes = removable.reduce((total, item) => total + item.conversion.fromBytes, 0);
+  // A target being overwritten frees its old bytes, so they count as reclaimed
+  // too; ignoring them made a forced re-run understate the change.
+  const replacedBytes = [...assets.values()].reduce((total, item) => total + item.replacedBytes, 0);
 
   return {
     conversions,
@@ -80,7 +85,7 @@ export async function convertGallery(options: ConvertOptions): Promise<VrefConve
     // actually removed. Under --keep-source nothing is reclaimed, so a
     // migration that grows the tree reports a negative number rather than
     // crediting originals that are still sitting on disk.
-    savedBytes: removedBytes - addedBytes,
+    savedBytes: removedBytes + replacedBytes - addedBytes,
     skippedCount,
   };
 }
@@ -98,16 +103,27 @@ async function writeConvertedAssets(
   document: Record<string, unknown>,
 ): Promise<void> {
   const written: { previous: Buffer | undefined; targetAssetPath: string }[] = [];
+  const manifestBefore = await readIfExists(paths.manifestPath);
 
   try {
     for (const item of assets.values()) {
+      // Registered before the write, not after: a write that fails partway has
+      // already truncated the target, and only a registered target gets restored.
       const previous = await readIfExists(item.targetAssetPath);
-      await writeAsset(paths.vrefDir, item.targetAssetPath, item.data);
       written.push({ previous, targetAssetPath: item.targetAssetPath });
+      await writeAsset(paths.vrefDir, item.targetAssetPath, item.data);
     }
 
     await writeManifestDocument(paths.manifestPath, document);
   } catch (error) {
+    if (manifestBefore !== undefined) {
+      try {
+        await writeFile(paths.manifestPath, manifestBefore);
+      } catch {
+        // The original failure is the one worth reporting.
+      }
+    }
+
     for (const item of written) {
       try {
         if (item.previous === undefined) {
@@ -124,6 +140,44 @@ async function writeConvertedAssets(
   }
 }
 
+/**
+ * Refuse a target that an entry outside this conversion already points at.
+ *
+ * `--force` skips the "does it exist" check, which is fine for replacing your
+ * own output but not when another manifest entry references that exact file:
+ * overwriting it swaps the image under that entry while its sizeBytes and
+ * viewport keep describing the old one, and `validate` still passes because the
+ * file exists.
+ */
+function assertTargetsUnclaimed(
+  vrefDir: string,
+  assets: Map<string, PendingConversion>,
+  pending: PendingConversion[],
+  document: Record<string, unknown>,
+): void {
+  const converting = new Set(pending.map((item) => item.conversion.id));
+  const screenshots = Array.isArray(document.screenshots) ? document.screenshots : [];
+
+  for (const item of assets.values()) {
+    const target = pathKey(item.targetAssetPath);
+
+    for (const raw of screenshots) {
+      if (!Predicate.isObject(raw) || typeof raw.file !== "string" || typeof raw.id !== "string") {
+        continue;
+      }
+      if (converting.has(raw.id)) {
+        continue;
+      }
+      if (pathKey(join(vrefDir, raw.file.replaceAll("\\", "/"))) === target) {
+        throw new VrefError(
+          "VREF_TARGET_CLAIMED",
+          `"${item.conversion.from}" converts to ${item.conversion.to}, which screenshot "${raw.id}" already references`,
+        );
+      }
+    }
+  }
+}
+
 function isStillReferenced(
   vrefDir: string,
   item: PendingConversion,
@@ -134,13 +188,13 @@ function isStillReferenced(
   // Case-insensitive for the same reason as collectAssets, and erring toward
   // keeping a file: a source that might still be referenced must not be
   // deleted.
-  const source = item.sourceAssetPath.toLowerCase();
+  const source = pathKey(item.sourceAssetPath);
 
   return screenshots.some(
     (raw) =>
       Predicate.isObject(raw) &&
       typeof raw.file === "string" &&
-      join(vrefDir, raw.file.replaceAll("\\", "/")).toLowerCase() === source,
+      pathKey(join(vrefDir, raw.file.replaceAll("\\", "/"))) === source,
   );
 }
 
@@ -165,8 +219,12 @@ async function prepareConversion(
   await assertNoSymlinkInPath(vrefDir, targetAssetPath, "screenshot asset");
 
   const fromBytes = await assetSize(sourceAssetPath, screenshot.file);
-  if (!options.force) {
-    await assertTargetFree(targetAssetPath, targetFile);
+  const replacedBytes = await existingSize(targetAssetPath);
+  if (!options.force && replacedBytes > 0) {
+    throw new VrefError(
+      "VREF_ASSET_EXISTS",
+      `webp asset already exists, pass --force to replace it: ${targetFile}`,
+    );
   }
 
   const encoded = await encodeWebp({ sourcePath: sourceAssetPath, quality: options.quality });
@@ -180,6 +238,7 @@ async function prepareConversion(
       toBytes: encoded.data.byteLength,
     },
     data: encoded.data,
+    replacedBytes,
     sourceAssetPath,
     targetAssetPath,
   };
@@ -187,6 +246,18 @@ async function prepareConversion(
 
 function isSelected(only: readonly string[] | undefined, id: string): boolean {
   return only === undefined || only.includes(id);
+}
+
+/**
+ * Compare paths the way the filesystem will.
+ *
+ * macOS and Windows fold case, and macOS also folds Unicode normalization, so
+ * `café.png` typed as NFC and as NFD are one file there and two on Linux.
+ * `.vref/` is committed and checked out on all of them, so comparisons use the
+ * most forgiving form and any ambiguity is refused rather than resolved.
+ */
+function pathKey(path: string): string {
+  return path.normalize("NFC").toLowerCase();
 }
 
 /**
@@ -207,7 +278,7 @@ function collectAssets(pending: PendingConversion[]): Map<string, PendingConvers
     // `HOME.jpg` are two files on Linux but one on macOS and Windows, so
     // comparing raw strings would let the second write swallow the first on
     // exactly the machines most of these galleries are authored on.
-    const key = item.targetAssetPath.toLowerCase();
+    const key = pathKey(item.targetAssetPath);
     const claimed = assets.get(key);
 
     if (claimed === undefined) {
@@ -256,15 +327,12 @@ async function assetSize(assetPath: string, file: string): Promise<number> {
   }
 }
 
-async function assertTargetFree(targetAssetPath: string, targetFile: string): Promise<void> {
+async function existingSize(targetAssetPath: string): Promise<number> {
   try {
-    await stat(targetAssetPath);
-  } catch {
-    return;
-  }
+    const stats = await stat(targetAssetPath);
 
-  throw new VrefError(
-    "VREF_ASSET_EXISTS",
-    `webp asset already exists, pass --force to replace it: ${targetFile}`,
-  );
+    return stats.isFile() ? stats.size : 0;
+  } catch {
+    return 0;
+  }
 }

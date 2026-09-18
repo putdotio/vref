@@ -81,10 +81,11 @@ UI captures it is also the smaller option: a 1920x1080 Roku splash goes from
 softens text edges. Use `--quality` for photo-heavy captures, where lossy is
 substantially smaller.
 
-A `.webp` source is copied verbatim rather than re-encoded, unless `--quality`
-forces a re-encode. Sources are auto-oriented from EXIF before encoding, so a
-portrait capture is stored upright and its `viewport` describes the upright
-result.
+A webp source is copied verbatim rather than re-encoded. That shortcut needs the
+bytes to really be webp — the extension alone does not qualify — and is skipped
+when the source carries an EXIF orientation tag or when `--quality` asks for a
+re-encode. Everything else is auto-oriented before encoding, so a portrait
+capture is stored upright and its `viewport` describes the upright result.
 
 Existing `.jpg`, `.jpeg`, and `.png` manifest entries stay valid, so upgrading
 never breaks a gallery. Migrate when you choose to:
@@ -100,8 +101,9 @@ together, and removes the original unless `--keep-source`. Scope it with
 
 - The manifest is rewritten before any original is deleted, so an interrupted run always leaves every entry resolvable.
 - A source is removed only when no surviving entry still references it, which matters when `--only` converts one of several entries sharing a file.
-- Two different assets that would resolve to the same `.webp` name fail the run before anything is written, rather than one silently replacing the other.
-- `savedBytes` is bytes removed minus bytes written, so it is negative when the tree grows — under `--keep-source` nothing is reclaimed, and re-encoding a lossy jpeg to lossless webp grows it. Pass `--quality` for jpeg sources. It does not credit a target that `--force` overwrote, so the figure understates the change on a forced re-run.
+- Two different assets that would resolve to the same `.webp` name fail the run before anything is written, rather than one silently replacing the other. Names are compared the way macOS and Windows compare them, folding case and Unicode normalization, so a gallery behaves the same on every filesystem.
+- A target that another entry already references is refused even under `--force`, since overwriting it would swap that entry's image while its `sizeBytes` and `viewport` still described the old one.
+- `savedBytes` is bytes removed minus bytes written, so it is negative when the tree grows — under `--keep-source` nothing is reclaimed, and re-encoding a lossy jpeg to lossless webp grows it. Pass `--quality` for jpeg sources. A target that `--force` overwrote is credited too, so the figure matches the change on disk.
 
 ## Validate, Build, And Serve
 
