@@ -48,20 +48,19 @@ When `vref validate --output json` reports a missing screenshot, fix the
 manifest entry or add the asset under `.vref/screenshots/`, then validate again:
 
 ```json
-{ "id": "home", "file": "screenshots/roku-720p/home.jpg" }
+{ "id": "home", "file": "screenshots/roku-720p/home.webp" }
 ```
 
 ## Image Format
 
-References are webp. `vref screenshot add` takes `.png`, `.jpg`, or `.webp`
-sources and always writes `.webp`, lossless unless `--quality 1-100` is passed.
-Do not hand-write `sizeBytes`, `viewport`, or `capturedAt` — the command measures
-them from the image, and a hand-typed value is how manifests drift from reality.
-Retina captures are the one exception: pass `viewport` in `--json`, because pixel
-dimensions are 2x the CSS viewport.
+References are webp; sources may be `.png`, `.jpg`, or `.webp`. Legacy `.jpg`,
+`.jpeg`, and `.png` entries still validate, so migrate with
+`vref convert --dry-run --output json` first, then `vref convert`.
 
-Legacy `.jpg`, `.jpeg`, and `.png` entries still validate. Migrate a reference set
-with `vref convert --dry-run --output json` first, then `vref convert`.
+Do not hand-write `file`, `sizeBytes`, `viewport`, or `capturedAt` for
+`screenshot add`; the command measures them from the image, and a hand-typed
+value drifts from the file. The one exception is a retina capture, whose pixel
+dimensions are 2x the CSS viewport: pass `viewport` in `--json` for those.
 
 ## Command Notes
 
