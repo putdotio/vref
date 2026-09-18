@@ -1,4 +1,5 @@
 export type {
+  VrefScreenshotDraft,
   VrefBuildResult,
   VrefConversion,
   VrefConvertResult,
@@ -13,6 +14,6 @@ export { buildGallery, validateGallery } from "./build.js";
 export { convertGallery } from "./convert.js";
 export { encodeWebp, isWebpFile, webpSiblingPath } from "./image.js";
 export { addScreenshot, decodeScreenshotDraftJson, decodeScreenshotJson } from "./manifest-edit.js";
-export { readManifest, writeManifest, type VrefScreenshotDraft } from "./manifest.js";
+export { readManifest, writeManifest } from "./manifest.js";
 export { renderGallery } from "./render.js";
 export { addScreenshotFromSource } from "./screenshot-add.js";

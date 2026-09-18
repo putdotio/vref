@@ -47,6 +47,13 @@ pnpm run test
 pnpm run pack:dry
 ```
 
+Coverage is reported, not gated — `verify` does not run it, so a thin patch
+fails review rather than CI:
+
+```bash
+pnpm run coverage
+```
+
 ## Development Notes
 
 Scope and coding boundaries: [Repo-Specific Guidance](./AGENTS.md#repo-specific-guidance).

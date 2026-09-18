@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
-import { VrefError } from "./errors.js";
+import { VrefError, messageFrom } from "./errors.js";
 import type { VrefViewport } from "./types.js";
 
 export const WEBP_EXTENSION = ".webp";
@@ -169,8 +169,4 @@ function assertQuality(quality: number | undefined): void {
   if (!Number.isInteger(quality) || quality < 1 || quality > 100) {
     throw new VrefError("VREF_INVALID_QUALITY", "--quality must be an integer between 1 and 100");
   }
-}
-
-function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

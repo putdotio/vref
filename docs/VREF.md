@@ -80,7 +80,7 @@ whether the referenced asset exists but never encodes or copies it.
 
 ## Image Format
 
-References are webp. Sources may be `.png`, `.jpg`, or `.webp`; output is always
+References are webp. Sources may be `.png`, `.jpg`, `.jpeg`, or `.webp`; output is
 `.webp`, lossless unless `--quality 1-100` asks for lossy.
 
 Lossless is the default because these files are read as pixel evidence. On flat

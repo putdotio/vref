@@ -79,7 +79,7 @@ vref describe --fields commands,automation
 
 ## Screenshots
 
-`vref` writes webp only, from `.png`, `.jpg`, or `.webp` sources. Encoding is
+`vref` writes webp only, from `.png`, `.jpg`, `.jpeg`, or `.webp` sources. Encoding is
 lossless unless `--quality 1-100` asks for lossy. A webp source is copied
 verbatim, keeping whatever fidelity it already had — but only when its bytes are
 really webp and it carries no EXIF orientation, since a verbatim copy cannot be
@@ -160,7 +160,7 @@ manifest metadata; it never encodes or copies the image.
 
 ## Contributing
 
-See [Contributing](./CONTRIBUTING.md) for setup, validation, and pull request expectations.
+See [Contributing](https://github.com/putdotio/vref/blob/main/CONTRIBUTING.md) for setup, validation, and pull request expectations.
 
 ## License
 
