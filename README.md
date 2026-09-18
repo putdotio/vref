@@ -79,10 +79,13 @@ vref describe --fields commands,automation
 
 ## Screenshots
 
-`vref` writes webp only, lossless unless `--quality 1-100` asks for lossy, from
-`.png`, `.jpg`, or `.webp` sources. It derives `file`, `sizeBytes`, `viewport`,
-and `capturedAt` from the image itself, so the manifest cannot drift from the
-files it describes.
+`vref` writes webp only, from `.png`, `.jpg`, or `.webp` sources. Encoding is
+lossless unless `--quality 1-100` asks for lossy; a `.webp` source is copied
+verbatim, keeping whatever fidelity it already had.
+
+It fills in the derived half of the manifest entry, so those fields cannot drift
+from the file: `sizeBytes` and `viewport` from the encoded image, `capturedAt`
+from the source file's modification time, and `file` from the screenshot id.
 
 Preview an add without writing anything:
 

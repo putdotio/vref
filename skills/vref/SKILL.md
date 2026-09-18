@@ -58,9 +58,10 @@ References are webp; sources may be `.png`, `.jpg`, or `.webp`. Legacy `.jpg`,
 `vref convert --dry-run --output json` first, then `vref convert`.
 
 Do not hand-write `file`, `sizeBytes`, `viewport`, or `capturedAt` for
-`screenshot add`; the command measures them from the image, and a hand-typed
-value drifts from the file. The one exception is a retina capture, whose pixel
-dimensions are 2x the CSS viewport: pass `viewport` in `--json` for those.
+`screenshot add`; it fills them in — `sizeBytes` and `viewport` from the encoded
+image, `capturedAt` from the source file's mtime, `file` from the id — and a
+hand-typed value drifts from the file. The one exception is a retina capture,
+whose pixel dimensions are 2x the CSS viewport: pass `viewport` in `--json`.
 
 ## Command Notes
 

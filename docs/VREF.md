@@ -32,8 +32,9 @@ Capture with the app repo's harness, then hand `vref` the file:
 vref screenshot add ./dist/tmp/settings.png --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","tags":["settings","list","device"],"notes":["Settings page with version, device, and logout rows visible."]}'
 ```
 
-Only the descriptive fields are yours to write. `file`, `sizeBytes`, `viewport`,
-and `capturedAt` are measured from the image and the source file:
+Only the descriptive fields are yours to write. `sizeBytes` and `viewport` come
+from the encoded image, `capturedAt` from the source file's modification time,
+and `file` defaults to `screenshots/<id>.webp`:
 
 ```json
 {
@@ -90,7 +91,7 @@ together, and removes the original unless `--keep-source`. Scope it with
 - The manifest is rewritten before any original is deleted, so an interrupted run always leaves every entry resolvable.
 - A source is removed only when no surviving entry still references it, which matters when `--only` converts one of several entries sharing a file.
 - Two different assets that would resolve to the same `.webp` name fail the run before anything is written, rather than one silently replacing the other.
-- `savedBytes` is bytes removed minus bytes written, so it is negative when the tree grows — under `--keep-source` nothing is reclaimed, and re-encoding a lossy jpeg to lossless webp grows it. Pass `--quality` for jpeg sources.
+- `savedBytes` is bytes removed minus bytes written, so it is negative when the tree grows — under `--keep-source` nothing is reclaimed, and re-encoding a lossy jpeg to lossless webp grows it. Pass `--quality` for jpeg sources. It does not credit a target that `--force` overwrote, so the figure understates the change on a forced re-run.
 
 ## Validate, Build, And Serve
 

@@ -1440,6 +1440,35 @@ describe("vref webp pipeline", () => {
     ).resolves.toMatchObject({ screenshotCount: 3 });
   });
 
+  it("keeps a source that a backslash-spelled entry still references", async () => {
+    const root = await makeLegacyFixture();
+    const document: { screenshots: Record<string, unknown>[] } = JSON.parse(
+      await readFile(join(root, ".vref/manifest.json"), "utf8"),
+    );
+    // The parser normalizes backslashes, so this is a valid second reference to
+    // the very same file.
+    document.screenshots.push({
+      ...document.screenshots[0],
+      id: "legacy-backslash",
+      file: "screenshots\\legacy.png",
+    });
+    await writeFile(join(root, ".vref/manifest.json"), JSON.stringify(document, null, 2));
+
+    await convertGallery({
+      cwd: root,
+      dryRun: false,
+      force: false,
+      keepSource: false,
+      manifestPath: ".vref/manifest.json",
+      only: ["legacy"],
+    });
+
+    await expect(stat(join(root, ".vref/screenshots/legacy.png"))).resolves.toBeTruthy();
+    await expect(
+      validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" }),
+    ).resolves.toMatchObject({ screenshotCount: 3 });
+  });
+
   it("applies exif orientation before deriving dimensions", async () => {
     const root = await makeWebpFixture();
     const { default: sharp } = await import("sharp");
