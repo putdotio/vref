@@ -95,8 +95,15 @@ describing the old image. Replacing the image behind an entry, or renaming its
 id, is `vref screenshot remove` followed by `vref screenshot add`: `add` refuses
 an id the manifest already has, `--force` included, so it cannot do it alone.
 
+A patch naming a field the entry does not have and the schema does not define
+is refused: the manifest tolerates extra properties, so `{"titel":"New"}` would
+otherwise be written as inert data while `title` kept its old value and the
+command reported success. Fields an entry already carries stay editable, so a
+manifest holding its own extra data is still maintainable.
+
 A patch that only resends existing values writes nothing and leaves `updatedAt`
-where it was, so re-running an update is free.
+where it was, so re-running an update is free. Values are compared structurally,
+so reordering the keys of `viewport` is not a change.
 
 `vref screenshot remove <id>` drops the entry and the file it references:
 

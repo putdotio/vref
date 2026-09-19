@@ -77,6 +77,6 @@ needs a nested path instead of the default `screenshots/<id>.webp`.
 - `vref convert --dry-run` reports the conversion plan without touching files.
 - `vref manifest add --json ... --dry-run` previews a schema-checked manifest append for metadata-only edits.
 - `vref manifest update <id> --json ... --dry-run` previews a merge of the named fields only.
-- `vref screenshot remove <id> --dry-run` reports the entry and file a removal would drop.
+- `vref screenshot remove <id> --dry-run` reports the entry and file a removal would drop. Without `--dry-run` it deletes the asset as well as the entry: pass `--keep-asset` to drop the entry and keep the capture. A file another entry also references is refused rather than deleted.
 - `vref serve` serves `.vref/` on `127.0.0.1:4173` by default.
 - Use `--output json` for agent automation; non-interactive stdout defaults to JSON.

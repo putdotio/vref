@@ -65,6 +65,39 @@ export type UpdateScreenshotOptions = {
   patch: Record<string, unknown>;
 };
 
+/**
+ * JSON with object keys in a fixed order, so equality does not depend on the
+ * order they were written in. Arrays keep their order: `tags` and `notes` are
+ * sequences, and reordering one is a real change.
+ */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`);
+
+    return `{${entries.join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
+}
+
+/** Schema fields an update may set. id, file and sizeBytes are refused separately. */
+const MUTABLE_FIELDS = new Set([
+  "title",
+  "group",
+  "platform",
+  "device",
+  "viewport",
+  "capturedAt",
+  "tags",
+  "notes",
+]);
+
 /** Fields an update refuses, with what to reach for instead. */
 const IMMUTABLE_FIELDS: Record<string, string> = {
   id: "`id` selects the entry. Rename with `vref screenshot remove` then `vref screenshot add`.",
@@ -100,10 +133,27 @@ export async function updateScreenshot(
       typeof entry === "object" && entry !== null && (entry as { id?: unknown }).id === options.id,
   );
   const current = entries[index] as Record<string, unknown>;
+
+  // A key that is neither a known mutable field nor already on the entry is a
+  // typo: the schema tolerates excess properties, so `titel` would be written
+  // as inert data, `title` would keep its old value, and the command would
+  // report success. Fields already present stay editable, so a manifest
+  // carrying its own extra data is still maintainable.
+  const unknownFields = Object.keys(options.patch)
+    .filter((field) => !MUTABLE_FIELDS.has(field) && !(field in current))
+    .sort();
+  if (unknownFields.length > 0) {
+    throw new VrefError(
+      "VREF_UNKNOWN_PATCH_FIELD",
+      `--json names no field of screenshot "${options.id}": ${unknownFields.join(", ")}. ` +
+        `Editable fields are ${[...MUTABLE_FIELDS].sort().join(", ")}, plus any the entry already carries.`,
+    );
+  }
+
   const merged = { ...current, ...options.patch };
   const screenshot = screenshotFromJson(merged, "--json");
   const changedFields = Object.keys(options.patch)
-    .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(options.patch[field]))
+    .filter((field) => stableJson(current[field]) !== stableJson(options.patch[field]))
     .sort();
 
   const nextEntries = [...entries];

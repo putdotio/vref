@@ -2752,6 +2752,84 @@ describe("remove and update verbs", () => {
     expect(existsSync(manifestPath)).toBe(true);
   });
 
+  it("refuses a misspelled patch field instead of writing inert data", async () => {
+    const root = await seedEntry("home");
+
+    // The schema tolerates excess properties, so `titel` would be written while
+    // `title` kept its old value and the command reported success.
+    await expect(
+      updateScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        manifestPath: ".vref/manifest.json",
+        patch: { titel: "New title" },
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_PATCH_FIELD" }));
+
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots[0]?.title).toBe("Home");
+    const raw = JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    expect(raw.screenshots[0]).not.toHaveProperty("titel");
+  });
+
+  it("still edits a field the entry already carries", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const raw = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    raw.screenshots[0]!.reviewedBy = "design";
+    await writeFile(manifestPath, `${JSON.stringify(raw, null, 2)}\n`);
+
+    // Rejecting unknown keys must not make a manifest's own extra data
+    // read-only; the rule is "known field, or already there".
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { reviewedBy: "product" },
+    });
+
+    expect(result.changedFields).toEqual(["reviewedBy"]);
+  });
+
+  it("treats a reordered object value as unchanged", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const pinned = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    pinned.updatedAt = "2020-01-01T00:00:00.000Z";
+    await writeFile(manifestPath, `${JSON.stringify(pinned, null, 2)}\n`);
+    const before = await readFile(manifestPath, "utf8");
+    const stored = (pinned.screenshots as { viewport: { width: number; height: number } }[])[0]!
+      .viewport;
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      // Same values, keys the other way round.
+      patch: { viewport: { height: stored.height, width: stored.width } },
+    });
+
+    expect(result.changedFields).toEqual([]);
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("says its mutation scope is relative to the selected manifest", () => {
+    const schema = describeCli() as {
+      commands: { screenshot: { remove: { mutatesScope: string } } };
+    };
+
+    // --manifest docs/visual/manifest.json puts both the manifest and its
+    // assets outside .vref/, so the listed paths are defaults, not the scope.
+    expect(schema.commands.screenshot.remove.mutatesScope).toContain("--manifest");
+  });
+
   it("names the id a remove cannot find", async () => {
     const root = await seedEntry("home");
 
