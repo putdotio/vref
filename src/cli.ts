@@ -94,8 +94,10 @@ export const COMMAND_FLAGS: Record<string, readonly string[]> = {
   validate: ["manifest"],
   serve: ["dir", "host", "port"],
   describe: [],
-  manifest: ["manifest", "json", "dry-run", "check"],
-  screenshot: ["manifest", "json", "quality", "force", "keep-asset", "dry-run", "check"],
+  "manifest add": ["manifest", "json", "dry-run", "check"],
+  "manifest update": ["manifest", "json", "dry-run", "check"],
+  "screenshot add": ["manifest", "json", "quality", "force", "dry-run", "check"],
+  "screenshot remove": ["manifest", "keep-asset", "dry-run", "check"],
   convert: ["manifest", "only", "quality", "keep-source", "force", "dry-run", "check"],
 };
 
@@ -117,9 +119,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
   options: RunCliOptions = {},
 ) {
   const args = yield* syncBoundary(() => parseArgs(argv, options.isInteractiveTerminal ?? true));
-  yield* syncBoundary(() =>
-    validateBooleanFlags(args, ["check", "dry-run", "force", "help", "keep-asset", "keep-source"]),
-  );
+  yield* syncBoundary(() => validateBooleanFlags(args, BOOLEAN_FLAGS));
 
   if (getBoolean(args, "help")) {
     yield* Effect.sync(() => printHelp(args.command));
@@ -396,6 +396,17 @@ export const runCli = Effect.fn("vref.cli")(function* (
   }
 });
 
+/**
+ * Flags that take no value.
+ *
+ * `--flag value` binds the value whatever the flag is, so these are the names
+ * a stray value is reported against. Note this means a boolean flag written
+ * before a positional swallows it: `vref screenshot remove --keep-asset home`
+ * fails rather than removing `home`. Fixing that needs per-command positional
+ * arity, because `--keep-asset home` and `--dry-run yes` are the same shape.
+ */
+const BOOLEAN_FLAGS = ["check", "dry-run", "force", "help", "keep-asset", "keep-source"] as const;
+
 function parseArgs(values: string[], isInteractiveTerminal: boolean): ParsedArgs {
   const [commandValue, ...rest] = values;
   const command = commandValue ?? "help";
@@ -559,10 +570,18 @@ function validateBooleanFlag(args: ParsedArgs, key: string): void {
 }
 
 function validateFlagNames(args: ParsedArgs): void {
-  const allowed = COMMAND_FLAGS[args.command];
+  // Keyed by verb where a command has them: the union of both screenshot verbs
+  // let `screenshot remove --quality` through, and the remove branch never
+  // validates it, so a malformed command reached the destructive path.
+  const subcommand = args.positionals[0];
+  const allowed =
+    (subcommand === undefined ? undefined : COMMAND_FLAGS[`${args.command} ${subcommand}`]) ??
+    COMMAND_FLAGS[args.command];
   if (allowed === undefined) {
     return;
   }
+
+  const label = subcommand === undefined ? args.command : `${args.command} ${subcommand}`;
 
   const unknownFlags = [...args.flags.keys()].filter(
     (flag) =>
@@ -571,7 +590,7 @@ function validateFlagNames(args: ParsedArgs): void {
   if (unknownFlags.length > 0) {
     throw new VrefError(
       "VREF_UNKNOWN_FLAG",
-      `Unknown flag for \`vref ${args.command}\`: ${unknownFlags.map((flag) => `--${flag}`).join(", ")}`,
+      `Unknown flag for \`vref ${label}\`: ${unknownFlags.map((flag) => `--${flag}`).join(", ")}`,
     );
   }
 }

@@ -2270,6 +2270,8 @@ describe("vref webp pipeline", () => {
 
     for (const [command, allowed] of Object.entries(COMMAND_FLAGS)) {
       const expected = new Set([...allowed, ...COMMON_FLAGS]);
+      // COMMAND_FLAGS is keyed per verb where a command has them, so
+      // "screenshot remove" is described at commands.screenshot.remove.
       const actual = described.get(command);
       if (actual === undefined) {
         mismatches.push(`${command}: not described at all`);
@@ -2830,6 +2832,68 @@ describe("remove and update verbs", () => {
     expect(schema.commands.screenshot.remove.mutatesScope).toContain("--manifest");
   });
 
+  it("refuses an add-only flag on the destructive remove branch", async () => {
+    const root = await seedEntry("home");
+
+    // The union allowlist let `--quality` through, and remove never validates
+    // it, so a malformed command reached the unlink.
+    await expect(
+      Effect.runPromise(
+        runCli(["screenshot", "remove", "home", "--quality", "--output", "json"], root),
+      ),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_FLAG" }));
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots).toHaveLength(1);
+  });
+
+  it("keeps --quality working on the add branch", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+
+    // The per-verb split must not cost add its own flags.
+    const added = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(
+          [
+            "screenshot",
+            "add",
+            "capture.png",
+            "--json",
+            JSON.stringify(draftFor("home")),
+            "--quality",
+            "80",
+            "--output",
+            "json",
+            "--fields",
+            "file",
+          ],
+          root,
+        ),
+      ),
+    );
+
+    expect(added.logs.join("\n")).toContain('"file": "screenshots/home.webp"');
+  });
+
+  it("refuses a prototype name as if it were an existing field", async () => {
+    const root = await seedEntry("home");
+
+    // `field in current` matched Object.prototype, so these read as editing an
+    // extension field the entry does not own.
+    for (const field of ["constructor", "toString"]) {
+      await expect(
+        updateScreenshot({
+          cwd: root,
+          dryRun: false,
+          id: "home",
+          manifestPath: ".vref/manifest.json",
+          patch: { [field]: "x" },
+        }),
+      ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_PATCH_FIELD" }));
+    }
+  });
+
   it("names the id a remove cannot find", async () => {
     const root = await seedEntry("home");
 
@@ -3174,12 +3238,41 @@ function describedEntryFor(
   return record;
 }
 
+/** Flag names in one describe options block, with the `--` stripped. */
+function flagNamesOf(options: Record<string, unknown>): Set<string> {
+  const names = new Set<string>();
+  for (const [key, option] of Object.entries(options)) {
+    const shape = option as { flag?: string; flags?: readonly string[] };
+    if (shape.flags !== undefined) {
+      for (const flag of shape.flags) {
+        names.add(flag.replace(/^--/u, ""));
+      }
+    } else if (shape.flag !== undefined) {
+      names.add(shape.flag.replace(/^--/u, ""));
+    } else {
+      names.add(key);
+    }
+  }
+
+  return names;
+}
+
 /** Flag names describe() advertises, per command, with the `--` stripped. */
 function describedCommands(): Map<string, Set<string>> {
   const schema = describeCli() as { commands: Record<string, unknown> };
   const described = new Map<string, Set<string>>();
 
   for (const [command, entry] of Object.entries(schema.commands)) {
+    // A command with verbs is recorded per verb under "<command> <verb>", the
+    // same key COMMAND_FLAGS uses, so each verb's flags are checked on their
+    // own rather than as a union that hides an add-only flag on remove.
+    for (const [verb, nested] of Object.entries(entry as Record<string, unknown>)) {
+      const nestedOptions = optionsFor(nested);
+      if (nestedOptions !== undefined && (nested as { options?: unknown }).options !== undefined) {
+        described.set(`${command} ${verb}`, flagNamesOf(nestedOptions));
+      }
+    }
+
     const blocks = allOptionBlocks(entry);
     if (blocks.length === 0) {
       continue;

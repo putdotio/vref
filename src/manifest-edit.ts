@@ -140,7 +140,9 @@ export async function updateScreenshot(
   // report success. Fields already present stay editable, so a manifest
   // carrying its own extra data is still maintainable.
   const unknownFields = Object.keys(options.patch)
-    .filter((field) => !MUTABLE_FIELDS.has(field) && !(field in current))
+    // hasOwn, not `in`: `in` matches Object.prototype names, so a patch of
+    // {"constructor":"x"} would read as editing an existing extension field.
+    .filter((field) => !MUTABLE_FIELDS.has(field) && !Object.hasOwn(current, field))
     .sort();
   if (unknownFields.length > 0) {
     throw new VrefError(
