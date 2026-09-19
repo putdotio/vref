@@ -2680,6 +2680,54 @@ describe("remove and update verbs", () => {
     expect(schema.commands.screenshot.remove.mutates).toContain(".vref/screenshots/*");
   });
 
+  it("refuses to unlink a manifest that is its own asset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-selfref-"));
+    await mkdir(join(root, ".vref"), { recursive: true });
+    const manifestPath = join(root, ".vref/gallery.webp");
+    // A manifest named with an image extension parses, and an entry may point
+    // straight at it. validate passes, so nothing upstream catches this.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          title: "self-referencing gallery",
+          description: "Manifest named as an asset.",
+          updatedAt: "2026-09-18T09:00:00.000Z",
+          screenshots: [
+            {
+              id: "self",
+              title: "Self",
+              group: "Main pages",
+              platform: "Web",
+              device: "Chrome 1440",
+              viewport: { width: 1, height: 1 },
+              file: "gallery.webp",
+              capturedAt: "2026-09-18T09:00:00.000Z",
+              sizeBytes: 10,
+              tags: [],
+              notes: [],
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await expect(
+      removeScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "self",
+        keepAsset: false,
+        manifestPath: ".vref/gallery.webp",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNSAFE_ASSET_PATH" }));
+    // Unlinking it would have taken every other entry with it.
+    expect(existsSync(manifestPath)).toBe(true);
+  });
+
   it("names the id a remove cannot find", async () => {
     const root = await seedEntry("home");
 

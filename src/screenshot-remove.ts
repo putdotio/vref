@@ -51,6 +51,18 @@ export async function removeScreenshot(
   let assetPath: string | undefined;
   if (!options.keepAsset) {
     assetPath = join(paths.manifestDir, safeManifestAssetPath(screenshot.file, "file"));
+
+    // A manifest named with an image extension can be referenced as its own
+    // asset, and nothing upstream rejects that: the document parses, the file
+    // exists, and validate passes. Unlinking it would delete every other entry
+    // too while reporting a successful removal.
+    if (pathKey(assetPath) === pathKey(paths.manifestPath)) {
+      throw new VrefError(
+        "VREF_UNSAFE_ASSET_PATH",
+        `${screenshot.file} resolves to the manifest itself. Pass --keep-asset to remove only the entry.`,
+      );
+    }
+
     await assertNoSymlinkInPath(paths.manifestDir, assetPath, "screenshot asset");
   }
 
