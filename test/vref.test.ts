@@ -33,7 +33,7 @@ import { describeCli } from "../src/describe.js";
 import { VREF_ERROR_CODES } from "../src/error-codes.js";
 import { VrefError } from "../src/errors.js";
 import { encodeWebp } from "../src/image.js";
-import { decodeScreenshotJson } from "../src/manifest-edit.js";
+import { decodeScreenshotJson, updateScreenshot } from "../src/manifest-edit.js";
 import { readManifest } from "../src/manifest.js";
 import {
   assertSupportedImage,
@@ -42,6 +42,7 @@ import {
 } from "../src/path-safety.js";
 import { renderGallery } from "../src/render.js";
 import { addScreenshotFromSource } from "../src/screenshot-add.js";
+import { removeScreenshot } from "../src/screenshot-remove.js";
 import { resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest, VrefScreenshotDraft } from "../src/types.js";
 
@@ -2082,8 +2083,14 @@ describe("vref webp pipeline", () => {
       Effect.runPromise(runCli(["screenshot", "add", "capture.png", "--output", "json"], root)),
     ).rejects.toThrow("requires --json");
     await expect(
-      Effect.runPromise(runCli(["screenshot", "remove", "--output", "json"], root)),
+      Effect.runPromise(runCli(["screenshot", "delete", "--output", "json"], root)),
     ).rejects.toThrow("vref screenshot add");
+    await expect(
+      Effect.runPromise(runCli(["screenshot", "remove", "--output", "json"], root)),
+    ).rejects.toThrow("requires a screenshot id");
+    await expect(
+      Effect.runPromise(runCli(["manifest", "update", "--output", "json"], root)),
+    ).rejects.toThrow("requires a screenshot id");
   });
 
   it("refuses an unknown flag name instead of running the destructive branch", async () => {
@@ -2263,6 +2270,8 @@ describe("vref webp pipeline", () => {
 
     for (const [command, allowed] of Object.entries(COMMAND_FLAGS)) {
       const expected = new Set([...allowed, ...COMMON_FLAGS]);
+      // COMMAND_FLAGS is keyed per verb where a command has them, so
+      // "screenshot remove" is described at commands.screenshot.remove.
       const actual = described.get(command);
       if (actual === undefined) {
         mismatches.push(`${command}: not described at all`);
@@ -2291,7 +2300,8 @@ describe("vref webp pipeline", () => {
     const mismatches: string[] = [];
 
     for (const [command, fields] of Object.entries(COMMAND_FIELDS)) {
-      const options = optionsFor(schema.commands[command]);
+      const entry = describedEntryFor(schema.commands, command);
+      const options = optionsFor(entry);
       const described = (options?.fields as { values?: readonly string[] } | undefined)?.values;
       if (described === undefined) {
         mismatches.push(`${command}: describe lists no --fields values`);
@@ -2357,6 +2367,563 @@ describe("vref webp pipeline", () => {
     expect(schema).toContain('"allowedExtensions":[".jpg",".jpeg",".png",".webp"]');
   });
 });
+
+describe("remove and update verbs", () => {
+  it("changes only the fields the patch names", async () => {
+    const root = await seedEntry("home");
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { title: "Home page", tags: ["home", "grid"] },
+    });
+
+    expect(result.changedFields).toEqual(["tags", "title"]);
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    const entry = manifest.screenshots[0];
+    expect(entry?.title).toBe("Home page");
+    expect(entry?.tags).toEqual(["home", "grid"]);
+    // Everything the patch did not name survives untouched.
+    expect(entry?.group).toBe("Main pages");
+    expect(entry?.notes).toEqual(["Home grid."]);
+  });
+
+  it("reports only the fields whose value actually moved", async () => {
+    const root = await seedEntry("home");
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { title: "Home", group: "Other pages" },
+    });
+
+    expect(result.changedFields).toEqual(["group"]);
+  });
+
+  it("keeps fields the schema does not model", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const raw = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    raw.screenshots[0]!.reviewedBy = "design";
+    await writeFile(manifestPath, `${JSON.stringify(raw, null, 2)}\n`);
+
+    await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { title: "Renamed" },
+    });
+
+    const after = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    expect(after.screenshots[0]?.reviewedBy).toBe("design");
+  });
+
+  it.each(["id", "file", "sizeBytes"])("refuses to change %s", async (field) => {
+    const root = await seedEntry("home");
+
+    await expect(
+      updateScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        manifestPath: ".vref/manifest.json",
+        patch: { [field]: field === "sizeBytes" ? 1 : "x" },
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_FIELD_IMMUTABLE" }));
+  });
+
+  it("refuses a patch that would not decode", async () => {
+    const root = await seedEntry("home");
+
+    await expect(
+      updateScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        manifestPath: ".vref/manifest.json",
+        patch: { tags: "home" },
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_MANIFEST_SCHEMA_INVALID" }));
+  });
+
+  it("names the id an update cannot find", async () => {
+    const root = await seedEntry("home");
+
+    await expect(
+      updateScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "missing",
+        manifestPath: ".vref/manifest.json",
+        patch: { title: "x" },
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_SELECTOR" }));
+  });
+
+  it("writes nothing on a dry-run update", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const before = await readFile(manifestPath, "utf8");
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: true,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { title: "Home page" },
+    });
+
+    expect(result.screenshot.title).toBe("Home page");
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("drops the entry and its asset", async () => {
+    const root = await seedEntry("home");
+
+    const result = await removeScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      keepAsset: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.assetDeleted).toBe(true);
+    expect(result.screenshotCount).toBe(0);
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(false);
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots).toHaveLength(0);
+  });
+
+  it("leaves the asset under keepAsset, where validate reports it as an orphan", async () => {
+    const root = await seedEntry("home");
+
+    const result = await removeScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      keepAsset: true,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.assetDeleted).toBe(false);
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+    const validated = await validateGallery({ cwd: root, manifestPath: ".vref/manifest.json" });
+    expect(validated.orphanAssets).toEqual(["screenshots/home.webp"]);
+  });
+
+  it("refuses to delete a file another entry still references", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const raw = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    raw.screenshots.push({ ...raw.screenshots[0], id: "home-copy" });
+    await writeFile(manifestPath, `${JSON.stringify(raw, null, 2)}\n`);
+
+    await expect(
+      removeScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        keepAsset: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_ASSET_CLAIMED" }));
+    // The refusal is total: the entry stays too, so nothing is half-done.
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+    const manifest = await readManifest(manifestPath);
+    expect(manifest.screenshots).toHaveLength(2);
+  });
+
+  it("removes only the entry when the file is shared and keepAsset is set", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const raw = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    raw.screenshots.push({ ...raw.screenshots[0], id: "home-copy" });
+    await writeFile(manifestPath, `${JSON.stringify(raw, null, 2)}\n`);
+
+    const result = await removeScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      keepAsset: true,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.screenshotCount).toBe(1);
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+  });
+
+  it("writes nothing on a dry-run remove", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const before = await readFile(manifestPath, "utf8");
+
+    const result = await removeScreenshot({
+      cwd: root,
+      dryRun: true,
+      id: "home",
+      keepAsset: false,
+      manifestPath: ".vref/manifest.json",
+    });
+
+    expect(result.assetDeleted).toBe(false);
+    expect(result.screenshotCount).toBe(0);
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+  });
+
+  it("refuses a malformed --keep-asset rather than deleting the file", async () => {
+    const root = await seedEntry("home");
+
+    // The safety flag is the whole point of the command: a value the parser
+    // does not understand must stop the run, not fall through to false and
+    // take the destructive branch.
+    await expect(
+      Effect.runPromise(
+        runCli(["screenshot", "remove", "home", "--keep-asset=yes", "--output", "json"], root),
+      ),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_INVALID_BOOLEAN" }));
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots).toHaveLength(1);
+  });
+
+  it("leaves the manifest alone when the asset path is unsafe", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    await unlink(join(root, ".vref/screenshots/home.webp"));
+    await symlink(join(root, "outside.webp"), join(root, ".vref/screenshots/home.webp"));
+    const before = await readFile(manifestPath, "utf8");
+
+    await expect(
+      removeScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        keepAsset: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_SYMLINK_PATH" }));
+    // The refusal has to be total: a half-done remove cannot be retried by id.
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("writes nothing when the patch changes no value", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    // Pinned to a date no write could reproduce: touchUpdatedAt stamps the
+    // current time, so comparing against a fresh fixture would pass whenever
+    // both writes land in the same millisecond.
+    const pinned = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    pinned.updatedAt = "2020-01-01T00:00:00.000Z";
+    await writeFile(manifestPath, `${JSON.stringify(pinned, null, 2)}\n`);
+    const before = await readFile(manifestPath, "utf8");
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { title: "Home" },
+    });
+
+    expect(result.changedFields).toEqual([]);
+    // updatedAt is the date the gallery shows, so a no-op must not move it.
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("names a route that works when a patch touches the asset fields", async () => {
+    const root = await seedEntry("home");
+
+    const failure = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { file: "screenshots/other.webp" },
+    }).catch((error: unknown) => error as VrefError);
+
+    expect(failure.code).toBe("VREF_FIELD_IMMUTABLE");
+    // `screenshot add` rejects an existing id before it looks at --force, so
+    // pointing there would be a dead end.
+    expect(failure.message).toContain("vref screenshot remove");
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: true,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_MANIFEST_DUPLICATE_ID" }));
+  });
+
+  it("declares a mutation scope covering every asset a remove can unlink", async () => {
+    const schema = describeCli() as {
+      commands: { screenshot: { remove: { mutates: string[] } } };
+    };
+
+    // An entry's file is any safe manifest-relative path: no screenshots/
+    // prefix is required and legacy .jpg/.png are still valid, so a narrower
+    // glob would understate what remove deletes. Proven rather than asserted.
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 8, 8);
+    const added = await addScreenshotFromSource({
+      cwd: root,
+      draft: { ...draftFor("logo"), file: "assets/logo.webp" },
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+    expect(added.file).toBe("assets/logo.webp");
+    expect(existsSync(join(root, ".vref/assets/logo.webp"))).toBe(true);
+
+    const removed = await removeScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "logo",
+      keepAsset: false,
+      manifestPath: ".vref/manifest.json",
+    });
+    expect(removed.assetDeleted).toBe(true);
+    expect(existsSync(join(root, ".vref/assets/logo.webp"))).toBe(false);
+
+    expect(schema.commands.screenshot.remove.mutates).toContain(".vref/**");
+  });
+
+  it("refuses to unlink a manifest that is its own asset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vref-selfref-"));
+    await mkdir(join(root, ".vref"), { recursive: true });
+    const manifestPath = join(root, ".vref/gallery.webp");
+    // A manifest named with an image extension parses, and an entry may point
+    // straight at it. validate passes, so nothing upstream catches this.
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          title: "self-referencing gallery",
+          description: "Manifest named as an asset.",
+          updatedAt: "2026-09-18T09:00:00.000Z",
+          screenshots: [
+            {
+              id: "self",
+              title: "Self",
+              group: "Main pages",
+              platform: "Web",
+              device: "Chrome 1440",
+              viewport: { width: 1, height: 1 },
+              file: "gallery.webp",
+              capturedAt: "2026-09-18T09:00:00.000Z",
+              sizeBytes: 10,
+              tags: [],
+              notes: [],
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await expect(
+      removeScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "self",
+        keepAsset: false,
+        manifestPath: ".vref/gallery.webp",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNSAFE_ASSET_PATH" }));
+    // Unlinking it would have taken every other entry with it.
+    expect(existsSync(manifestPath)).toBe(true);
+  });
+
+  it("refuses a misspelled patch field instead of writing inert data", async () => {
+    const root = await seedEntry("home");
+
+    // The schema tolerates excess properties, so `titel` would be written while
+    // `title` kept its old value and the command reported success.
+    await expect(
+      updateScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        manifestPath: ".vref/manifest.json",
+        patch: { titel: "New title" },
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_PATCH_FIELD" }));
+
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots[0]?.title).toBe("Home");
+    const raw = JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    expect(raw.screenshots[0]).not.toHaveProperty("titel");
+  });
+
+  it("still edits a field the entry already carries", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const raw = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      screenshots: Record<string, unknown>[];
+    };
+    raw.screenshots[0]!.reviewedBy = "design";
+    await writeFile(manifestPath, `${JSON.stringify(raw, null, 2)}\n`);
+
+    // Rejecting unknown keys must not make a manifest's own extra data
+    // read-only; the rule is "known field, or already there".
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { reviewedBy: "product" },
+    });
+
+    expect(result.changedFields).toEqual(["reviewedBy"]);
+  });
+
+  it("treats a reordered object value as unchanged", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    const pinned = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    pinned.updatedAt = "2020-01-01T00:00:00.000Z";
+    await writeFile(manifestPath, `${JSON.stringify(pinned, null, 2)}\n`);
+    const before = await readFile(manifestPath, "utf8");
+    const stored = (pinned.screenshots as { viewport: { width: number; height: number } }[])[0]!
+      .viewport;
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      // Same values, keys the other way round.
+      patch: { viewport: { height: stored.height, width: stored.width } },
+    });
+
+    expect(result.changedFields).toEqual([]);
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("says its mutation scope is relative to the selected manifest", () => {
+    const schema = describeCli() as {
+      commands: { screenshot: { remove: { mutatesScope: string } } };
+    };
+
+    // --manifest docs/visual/manifest.json puts both the manifest and its
+    // assets outside .vref/, so the listed paths are defaults, not the scope.
+    expect(schema.commands.screenshot.remove.mutatesScope).toContain("--manifest");
+  });
+
+  it("refuses an add-only flag on the destructive remove branch", async () => {
+    const root = await seedEntry("home");
+
+    // The union allowlist let `--quality` through, and remove never validates
+    // it, so a malformed command reached the unlink.
+    await expect(
+      Effect.runPromise(
+        runCli(["screenshot", "remove", "home", "--quality", "--output", "json"], root),
+      ),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_FLAG" }));
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots).toHaveLength(1);
+  });
+
+  it("keeps --quality working on the add branch", async () => {
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 16, 16);
+
+    // The per-verb split must not cost add its own flags.
+    const added = await captureConsoleLog(() =>
+      Effect.runPromise(
+        runCli(
+          [
+            "screenshot",
+            "add",
+            "capture.png",
+            "--json",
+            JSON.stringify(draftFor("home")),
+            "--quality",
+            "80",
+            "--output",
+            "json",
+            "--fields",
+            "file",
+          ],
+          root,
+        ),
+      ),
+    );
+
+    expect(added.logs.join("\n")).toContain('"file": "screenshots/home.webp"');
+  });
+
+  it("refuses a prototype name as if it were an existing field", async () => {
+    const root = await seedEntry("home");
+
+    // `field in current` matched Object.prototype, so these read as editing an
+    // extension field the entry does not own.
+    for (const field of ["constructor", "toString"]) {
+      await expect(
+        updateScreenshot({
+          cwd: root,
+          dryRun: false,
+          id: "home",
+          manifestPath: ".vref/manifest.json",
+          patch: { [field]: "x" },
+        }),
+      ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_PATCH_FIELD" }));
+    }
+  });
+
+  it("names the id a remove cannot find", async () => {
+    const root = await seedEntry("home");
+
+    await expect(
+      removeScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "missing",
+        keepAsset: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_UNKNOWN_SELECTOR" }));
+  });
+});
+
+/** A workspace holding one encoded screenshot, the state both verbs act on. */
+async function seedEntry(id: string): Promise<string> {
+  const root = await makeWebpFixture();
+  await makePng(join(root, "capture.png"), 64, 48);
+  await addScreenshotFromSource({
+    cwd: root,
+    draft: draftFor(id),
+    dryRun: false,
+    force: false,
+    manifestPath: ".vref/manifest.json",
+    sourcePath: "capture.png",
+  });
+
+  return root;
+}
 
 describe("orphan assets", () => {
   it("reports image files under the manifest directory no entry references", async () => {
@@ -2627,19 +3194,92 @@ function optionsFor(entry: unknown): Record<string, unknown> | undefined {
   return optionsFor(record.add);
 }
 
+/**
+ * Every option block under a command, its subcommands included.
+ *
+ * A command's flags are the union of what all its verbs accept, because
+ * COMMAND_FLAGS is keyed by command and the parser checks names before it
+ * knows which verb ran.
+ */
+function allOptionBlocks(entry: unknown): Record<string, unknown>[] {
+  if (entry === null || typeof entry !== "object") {
+    return [];
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (record.options !== undefined) {
+    return [record.options as Record<string, unknown>];
+  }
+
+  return Object.values(record).flatMap(allOptionBlocks);
+}
+
+/**
+ * The describe entry a COMMAND_FIELDS key names.
+ *
+ * `screenshotRemove` is `commands.screenshot.remove`; a bare command key is its
+ * `add` verb, which is the one whose result those fields describe.
+ */
+function describedEntryFor(
+  commands: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const [command = "", subcommand] = key.split(/(?=[A-Z])/u).map((part) => part.toLowerCase());
+  const entry = commands[command];
+  if (entry === null || typeof entry !== "object") {
+    return undefined;
+  }
+
+  const record = entry as Record<string, unknown>;
+  if (subcommand !== undefined) {
+    return record[subcommand] as Record<string, unknown> | undefined;
+  }
+
+  return record;
+}
+
+/** Flag names in one describe options block, with the `--` stripped. */
+function flagNamesOf(options: Record<string, unknown>): Set<string> {
+  const names = new Set<string>();
+  for (const [key, option] of Object.entries(options)) {
+    const shape = option as { flag?: string; flags?: readonly string[] };
+    if (shape.flags !== undefined) {
+      for (const flag of shape.flags) {
+        names.add(flag.replace(/^--/u, ""));
+      }
+    } else if (shape.flag !== undefined) {
+      names.add(shape.flag.replace(/^--/u, ""));
+    } else {
+      names.add(key);
+    }
+  }
+
+  return names;
+}
+
 /** Flag names describe() advertises, per command, with the `--` stripped. */
 function describedCommands(): Map<string, Set<string>> {
   const schema = describeCli() as { commands: Record<string, unknown> };
   const described = new Map<string, Set<string>>();
 
   for (const [command, entry] of Object.entries(schema.commands)) {
-    const options = optionsFor(entry);
-    if (options === undefined) {
+    // A command with verbs is recorded per verb under "<command> <verb>", the
+    // same key COMMAND_FLAGS uses, so each verb's flags are checked on their
+    // own rather than as a union that hides an add-only flag on remove.
+    for (const [verb, nested] of Object.entries(entry as Record<string, unknown>)) {
+      const nestedOptions = optionsFor(nested);
+      if (nestedOptions !== undefined && (nested as { options?: unknown }).options !== undefined) {
+        described.set(`${command} ${verb}`, flagNamesOf(nestedOptions));
+      }
+    }
+
+    const blocks = allOptionBlocks(entry);
+    if (blocks.length === 0) {
       continue;
     }
 
     const names = new Set<string>();
-    for (const [key, option] of Object.entries(options)) {
+    for (const [key, option] of blocks.flatMap((block) => Object.entries(block))) {
       const shape = option as { flag?: string; flags?: readonly string[] };
       if (shape.flags !== undefined) {
         for (const flag of shape.flags) {

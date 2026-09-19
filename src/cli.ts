@@ -8,8 +8,15 @@ import { buildGallery, validateGallery } from "./build.js";
 import { convertGallery } from "./convert.js";
 import { describeCli } from "./describe.js";
 import { normalizeError, VrefError } from "./errors.js";
-import { addScreenshot, decodeScreenshotDraftJson, decodeScreenshotJson } from "./manifest-edit.js";
+import {
+  addScreenshot,
+  decodePatchJson,
+  decodeScreenshotDraftJson,
+  decodeScreenshotJson,
+  updateScreenshot,
+} from "./manifest-edit.js";
 import { addScreenshotFromSource } from "./screenshot-add.js";
+import { removeScreenshot } from "./screenshot-remove.js";
 import { parseFields, renderJsonError, renderJsonResult, type OutputFormat } from "./output.js";
 import { serve } from "./serve.js";
 import type { VrefValidateResult } from "./types.js";
@@ -45,6 +52,15 @@ export const COMMAND_FIELDS = {
     "manifest",
   ],
   manifest: ["assetExists", "dryRun", "manifestPath", "screenshot", "screenshotCount"],
+  manifestUpdate: ["changedFields", "dryRun", "manifestPath", "screenshot", "screenshotCount"],
+  screenshotRemove: [
+    "assetDeleted",
+    "dryRun",
+    "file",
+    "manifestPath",
+    "screenshot",
+    "screenshotCount",
+  ],
   screenshot: [
     "dryRun",
     "file",
@@ -78,8 +94,10 @@ export const COMMAND_FLAGS: Record<string, readonly string[]> = {
   validate: ["manifest"],
   serve: ["dir", "host", "port"],
   describe: [],
-  manifest: ["manifest", "json", "dry-run", "check"],
-  screenshot: ["manifest", "json", "quality", "force", "dry-run", "check"],
+  "manifest add": ["manifest", "json", "dry-run", "check"],
+  "manifest update": ["manifest", "json", "dry-run", "check"],
+  "screenshot add": ["manifest", "json", "quality", "force", "dry-run", "check"],
+  "screenshot remove": ["manifest", "keep-asset", "dry-run", "check"],
   convert: ["manifest", "only", "quality", "keep-source", "force", "dry-run", "check"],
 };
 
@@ -101,9 +119,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
   options: RunCliOptions = {},
 ) {
   const args = yield* syncBoundary(() => parseArgs(argv, options.isInteractiveTerminal ?? true));
-  yield* syncBoundary(() =>
-    validateBooleanFlags(args, ["check", "dry-run", "force", "help", "keep-source"]),
-  );
+  yield* syncBoundary(() => validateBooleanFlags(args, BOOLEAN_FLAGS));
 
   if (getBoolean(args, "help")) {
     yield* Effect.sync(() => printHelp(args.command));
@@ -183,13 +199,48 @@ export const runCli = Effect.fn("vref.cli")(function* (
 
     case "manifest": {
       const subcommand = args.positionals[0];
-      if (subcommand !== "add") {
+      if (subcommand !== "add" && subcommand !== "update") {
         return yield* Effect.fail(
           new VrefError(
             "VREF_UNKNOWN_COMMAND",
-            "Unknown manifest command. Use `vref manifest add`.",
+            "Unknown manifest command. Use `vref manifest add` or `vref manifest update`.",
           ),
         );
+      }
+
+      if (subcommand === "update") {
+        const id = args.positionals[1];
+        if (id === undefined) {
+          return yield* Effect.fail(
+            new VrefError("VREF_EMPTY_SELECTOR", "`vref manifest update` requires a screenshot id"),
+          );
+        }
+
+        const rawPatch = getString(args, "json");
+        if (rawPatch === undefined) {
+          return yield* Effect.fail(
+            new VrefError("VREF_JSON_REQUIRED", "`vref manifest update` requires --json"),
+          );
+        }
+
+        yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.manifestUpdate));
+        const patch = yield* syncBoundary(() => decodePatchJson(rawPatch));
+        const updated = yield* promiseBoundary(() =>
+          updateScreenshot({
+            cwd,
+            dryRun: getBoolean(args, "dry-run") || getBoolean(args, "check"),
+            id,
+            manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
+            patch,
+          }),
+        );
+        const changed =
+          updated.changedFields.length === 0 ? "nothing" : updated.changedFields.join(", ");
+        const updateMessage = updated.dryRun
+          ? `validated manifest update for ${updated.screenshot.id} (${changed})`
+          : `updated manifest screenshot ${updated.screenshot.id} (${changed})`;
+        yield* Effect.sync(() => print(args, updated, updateMessage));
+        return;
       }
 
       const rawJson = getString(args, "json");
@@ -218,13 +269,43 @@ export const runCli = Effect.fn("vref.cli")(function* (
 
     case "screenshot": {
       const subcommand = args.positionals[0];
-      if (subcommand !== "add") {
+      if (subcommand !== "add" && subcommand !== "remove") {
         return yield* Effect.fail(
           new VrefError(
             "VREF_UNKNOWN_COMMAND",
-            "Unknown screenshot command. Use `vref screenshot add`.",
+            "Unknown screenshot command. Use `vref screenshot add` or `vref screenshot remove`.",
           ),
         );
+      }
+
+      if (subcommand === "remove") {
+        const id = args.positionals[1];
+        if (id === undefined) {
+          return yield* Effect.fail(
+            new VrefError(
+              "VREF_EMPTY_SELECTOR",
+              "`vref screenshot remove` requires a screenshot id",
+            ),
+          );
+        }
+
+        yield* syncBoundary(() => validateFields(args, COMMAND_FIELDS.screenshotRemove));
+        const removed = yield* promiseBoundary(() =>
+          removeScreenshot({
+            cwd,
+            dryRun: getBoolean(args, "dry-run") || getBoolean(args, "check"),
+            id,
+            keepAsset: getBoolean(args, "keep-asset"),
+            manifestPath: getRequiredString(args, "manifest", DEFAULT_MANIFEST),
+          }),
+        );
+        const removeMessage = removed.dryRun
+          ? `validated screenshot remove for ${removed.screenshot.id}`
+          : removed.assetDeleted
+            ? `removed ${removed.screenshot.id} and ${removed.file}`
+            : `removed ${removed.screenshot.id}, kept ${removed.file}`;
+        yield* Effect.sync(() => print(args, removed, removeMessage));
+        return;
       }
 
       const sourcePath = args.positionals[1];
@@ -314,6 +395,17 @@ export const runCli = Effect.fn("vref.cli")(function* (
       );
   }
 });
+
+/**
+ * Flags that take no value.
+ *
+ * `--flag value` binds the value whatever the flag is, so these are the names
+ * a stray value is reported against. Note this means a boolean flag written
+ * before a positional swallows it: `vref screenshot remove --keep-asset home`
+ * fails rather than removing `home`. Fixing that needs per-command positional
+ * arity, because `--keep-asset home` and `--dry-run yes` are the same shape.
+ */
+const BOOLEAN_FLAGS = ["check", "dry-run", "force", "help", "keep-asset", "keep-source"] as const;
 
 function parseArgs(values: string[], isInteractiveTerminal: boolean): ParsedArgs {
   const [commandValue, ...rest] = values;
@@ -478,10 +570,18 @@ function validateBooleanFlag(args: ParsedArgs, key: string): void {
 }
 
 function validateFlagNames(args: ParsedArgs): void {
-  const allowed = COMMAND_FLAGS[args.command];
+  // Keyed by verb where a command has them: the union of both screenshot verbs
+  // let `screenshot remove --quality` through, and the remove branch never
+  // validates it, so a malformed command reached the destructive path.
+  const subcommand = args.positionals[0];
+  const allowed =
+    (subcommand === undefined ? undefined : COMMAND_FLAGS[`${args.command} ${subcommand}`]) ??
+    COMMAND_FLAGS[args.command];
   if (allowed === undefined) {
     return;
   }
+
+  const label = subcommand === undefined ? args.command : `${args.command} ${subcommand}`;
 
   const unknownFlags = [...args.flags.keys()].filter(
     (flag) =>
@@ -490,7 +590,7 @@ function validateFlagNames(args: ParsedArgs): void {
   if (unknownFlags.length > 0) {
     throw new VrefError(
       "VREF_UNKNOWN_FLAG",
-      `Unknown flag for \`vref ${args.command}\`: ${unknownFlags.map((flag) => `--${flag}`).join(", ")}`,
+      `Unknown flag for \`vref ${label}\`: ${unknownFlags.map((flag) => `--${flag}`).join(", ")}`,
     );
   }
 }
@@ -595,16 +695,23 @@ Usage:
   }
 
   if (command === "manifest") {
-    console.log(`vref manifest add
+    console.log(`vref manifest add | update
+
+update merges only the fields --json names, leaving the rest of the entry alone.
+It refuses id, file, and sizeBytes: those describe the asset, not the text.
 
 Usage:
   vref manifest add --json '{"id":"home",...}' [--manifest .vref/manifest.json] [--dry-run] [--output json] [--fields field[,field...]]
+  vref manifest update <id> --json '{"title":"Home"}' [--manifest .vref/manifest.json] [--dry-run] [--output json] [--fields field[,field...]]
 `);
     return;
   }
 
   if (command === "screenshot") {
-    console.log(`vref screenshot add
+    console.log(`vref screenshot add | remove
+
+remove drops the entry and the file it references. --keep-asset leaves the file,
+which validate then reports under orphanAssets.
 
 Encodes a captured .png, .jpg, or .webp source to lossless webp, writes it under
 .vref/screenshots/, and appends the manifest entry. Pass --quality for lossy webp.
@@ -612,6 +719,7 @@ Pass "viewport" in --json when the logical size differs from the stored pixels; 
 
 Usage:
   vref screenshot add <source> --json '{"id":"home","title":"Home","group":"Main pages","platform":"Web","device":"Chrome 1440"}' [--manifest .vref/manifest.json] [--quality 1-100] [--force] [--dry-run] [--output json] [--fields field[,field...]]
+  vref screenshot remove <id> [--manifest .vref/manifest.json] [--keep-asset] [--dry-run] [--output json] [--fields field[,field...]]
 `);
     return;
   }
@@ -635,8 +743,10 @@ Usage:
   vref validate [--manifest .vref/manifest.json] [--output json]
   vref serve [--dir .vref] [--host 127.0.0.1] [--port 4173] [--output json]
   vref screenshot add <source> --json '{"id":"home",...}' [--quality 1-100] [--force] [--dry-run] [--output json]
+  vref screenshot remove <id> [--keep-asset] [--dry-run] [--output json]
   vref convert [--only id[,id...]] [--keep-source] [--dry-run] [--output json]
   vref manifest add --json '{"id":"home",...}' [--manifest .vref/manifest.json] [--dry-run] [--output json]
+  vref manifest update <id> --json '{"title":"Home"}' [--dry-run] [--output json]
   vref describe --output json
 `);
 }

@@ -23,6 +23,9 @@ vref manifest add --json '{"id":"settings","title":"Settings","group":"Main page
 Convert an existing png or jpeg reference set to webp:
 
 ```bash
+vref manifest update settings --json '{"title":"Settings page"}' --dry-run --output json
+vref screenshot remove settings --dry-run --output json
+vref screenshot remove settings --keep-asset --output json
 vref convert --dry-run --output json
 vref convert --only home,settings --output json
 ```
@@ -40,7 +43,7 @@ Rules:
 - Do not hand-write `updatedAt`. Every non-dry-run manifest write stamps it.
 - `assetExists` reports whether the referenced screenshot already exists.
 - After updating screenshot files, run `vref validate --output json --fields screenshotCount,groupCount,deviceCount`.
-- After removing an entry, run `vref validate --output json --fields orphanAssets`: it lists image files nothing references, relative to the manifest directory `--manifest` selected. Deleting the leftover is a manual step.
+- `vref screenshot remove <id>` deletes the entry and its asset. Pass `--keep-asset` to keep the capture; the file then shows up in `vref validate --output json --fields orphanAssets`, which lists image files nothing references, relative to the manifest directory `--manifest` selected. Deleting that leftover is a manual step. A file another entry also references is refused rather than deleted, so use `--keep-asset` there.
 - Top-level `--fields` values only; do not use dotted paths. `vref describe` lists the accepted values per command; read them from it rather than hard-coding a list.
 - `describe` reports its own shape as `schemaVersion`, currently `2`. Fields are renamed and removed between versions, so check it before relying on a field that is not in the command's advertised `--fields` values.
 - An unrecognised flag name is rejected with `VREF_UNKNOWN_FLAG`, and a path flag passed without a value with `VREF_EMPTY_FLAG`. Neither falls through to a default, so a typo cannot quietly run the destructive branch.
