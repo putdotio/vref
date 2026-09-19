@@ -176,9 +176,11 @@ export function describeCli(): unknown {
         remove: {
           description:
             "Drop one screenshot entry and the asset it references. Refuses when another entry references the same file.",
-          // Legacy .jpg/.jpeg/.png entries are still valid, and remove unlinks
-          // whatever the entry points at, so the declared scope covers them.
-          mutates: [".vref/manifest.json", ".vref/screenshots/*"],
+          // An entry's `file` is any safe manifest-relative path, not
+          // necessarily under screenshots/ and not necessarily webp, and remove
+          // unlinks whatever it points at. A narrower glob would let automation
+          // reading this overlook a file the command deletes.
+          mutates: [".vref/manifest.json", ".vref/**"],
           positionals: [{ name: "id", required: true, description: "Screenshot id to remove." }],
           options: {
             manifest: { type: "string", default: ".vref/manifest.json" },

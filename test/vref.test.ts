@@ -2670,14 +2670,38 @@ describe("remove and update verbs", () => {
     ).rejects.toThrow(expect.objectContaining({ code: "VREF_MANIFEST_DUPLICATE_ID" }));
   });
 
-  it("declares every asset extension a remove can unlink", () => {
+  it("declares a mutation scope covering every asset a remove can unlink", async () => {
     const schema = describeCli() as {
       commands: { screenshot: { remove: { mutates: string[] } } };
     };
 
-    // Legacy .jpg/.png entries are still valid, and remove unlinks whatever the
-    // entry points at, so a webp-only glob would understate the mutation scope.
-    expect(schema.commands.screenshot.remove.mutates).toContain(".vref/screenshots/*");
+    // An entry's file is any safe manifest-relative path: no screenshots/
+    // prefix is required and legacy .jpg/.png are still valid, so a narrower
+    // glob would understate what remove deletes. Proven rather than asserted.
+    const root = await makeWebpFixture();
+    await makePng(join(root, "capture.png"), 8, 8);
+    const added = await addScreenshotFromSource({
+      cwd: root,
+      draft: { ...draftFor("logo"), file: "assets/logo.webp" },
+      dryRun: false,
+      force: false,
+      manifestPath: ".vref/manifest.json",
+      sourcePath: "capture.png",
+    });
+    expect(added.file).toBe("assets/logo.webp");
+    expect(existsSync(join(root, ".vref/assets/logo.webp"))).toBe(true);
+
+    const removed = await removeScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "logo",
+      keepAsset: false,
+      manifestPath: ".vref/manifest.json",
+    });
+    expect(removed.assetDeleted).toBe(true);
+    expect(existsSync(join(root, ".vref/assets/logo.webp"))).toBe(false);
+
+    expect(schema.commands.screenshot.remove.mutates).toContain(".vref/**");
   });
 
   it("refuses to unlink a manifest that is its own asset", async () => {
