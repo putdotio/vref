@@ -91,8 +91,12 @@ vref manifest update home --json '{"title":"Home grid","tags":["home","grid"]}' 
 
 It refuses `id`, `file`, and `sizeBytes`. Those describe the asset rather than
 the text, and changing `file` alone would leave `sizeBytes` and `viewport`
-describing the old image; `vref screenshot add --force` is the command that
-re-encodes and re-measures together. Renaming an id is a remove and an add.
+describing the old image. Replacing the image behind an entry, or renaming its
+id, is `vref screenshot remove` followed by `vref screenshot add`: `add` refuses
+an id the manifest already has, `--force` included, so it cannot do it alone.
+
+A patch that only resends existing values writes nothing and leaves `updatedAt`
+where it was, so re-running an update is free.
 
 `vref screenshot remove <id>` drops the entry and the file it references:
 

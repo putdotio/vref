@@ -67,9 +67,10 @@ export type UpdateScreenshotOptions = {
 
 /** Fields an update refuses, with what to reach for instead. */
 const IMMUTABLE_FIELDS: Record<string, string> = {
-  id: "`id` selects the entry; remove it and add the replacement to rename one.",
-  file: "`file` names the asset, and sizeBytes and viewport describe it. Use `vref screenshot add --force`.",
-  sizeBytes: "`sizeBytes` is measured from the asset. Use `vref screenshot add --force`.",
+  id: "`id` selects the entry. Rename with `vref screenshot remove` then `vref screenshot add`.",
+  file: "`file` names the asset, and sizeBytes and viewport describe it. Replace with `vref screenshot remove` then `vref screenshot add`.",
+  sizeBytes:
+    "`sizeBytes` is measured from the asset. Replace with `vref screenshot remove` then `vref screenshot add`.",
 };
 
 /**
@@ -108,7 +109,10 @@ export async function updateScreenshot(
   const nextEntries = [...entries];
   nextEntries[index] = merged;
 
-  if (!options.dryRun) {
+  // A patch that resends existing values is a no-op, so it must not move
+  // updatedAt: that is the date the gallery displays, and dirtying the owning
+  // repo while reporting "nothing changed" is a contradiction.
+  if (!options.dryRun && changedFields.length > 0) {
     await writeManifestDocument(
       paths.manifestPath,
       touchUpdatedAt({ ...document, screenshots: nextEntries }),

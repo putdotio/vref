@@ -118,7 +118,7 @@ export const runCli = Effect.fn("vref.cli")(function* (
 ) {
   const args = yield* syncBoundary(() => parseArgs(argv, options.isInteractiveTerminal ?? true));
   yield* syncBoundary(() =>
-    validateBooleanFlags(args, ["check", "dry-run", "force", "help", "keep-source"]),
+    validateBooleanFlags(args, ["check", "dry-run", "force", "help", "keep-asset", "keep-source"]),
   );
 
   if (getBoolean(args, "help")) {

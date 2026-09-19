@@ -2583,6 +2583,103 @@ describe("remove and update verbs", () => {
     expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
   });
 
+  it("refuses a malformed --keep-asset rather than deleting the file", async () => {
+    const root = await seedEntry("home");
+
+    // The safety flag is the whole point of the command: a value the parser
+    // does not understand must stop the run, not fall through to false and
+    // take the destructive branch.
+    await expect(
+      Effect.runPromise(
+        runCli(["screenshot", "remove", "home", "--keep-asset=yes", "--output", "json"], root),
+      ),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_INVALID_BOOLEAN" }));
+    expect(existsSync(join(root, ".vref/screenshots/home.webp"))).toBe(true);
+    const manifest = await readManifest(join(root, ".vref/manifest.json"));
+    expect(manifest.screenshots).toHaveLength(1);
+  });
+
+  it("leaves the manifest alone when the asset path is unsafe", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    await unlink(join(root, ".vref/screenshots/home.webp"));
+    await symlink(join(root, "outside.webp"), join(root, ".vref/screenshots/home.webp"));
+    const before = await readFile(manifestPath, "utf8");
+
+    await expect(
+      removeScreenshot({
+        cwd: root,
+        dryRun: false,
+        id: "home",
+        keepAsset: false,
+        manifestPath: ".vref/manifest.json",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_SYMLINK_PATH" }));
+    // The refusal has to be total: a half-done remove cannot be retried by id.
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("writes nothing when the patch changes no value", async () => {
+    const root = await seedEntry("home");
+    const manifestPath = join(root, ".vref/manifest.json");
+    // Pinned to a date no write could reproduce: touchUpdatedAt stamps the
+    // current time, so comparing against a fresh fixture would pass whenever
+    // both writes land in the same millisecond.
+    const pinned = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    pinned.updatedAt = "2020-01-01T00:00:00.000Z";
+    await writeFile(manifestPath, `${JSON.stringify(pinned, null, 2)}\n`);
+    const before = await readFile(manifestPath, "utf8");
+
+    const result = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { title: "Home" },
+    });
+
+    expect(result.changedFields).toEqual([]);
+    // updatedAt is the date the gallery shows, so a no-op must not move it.
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+  });
+
+  it("names a route that works when a patch touches the asset fields", async () => {
+    const root = await seedEntry("home");
+
+    const failure = await updateScreenshot({
+      cwd: root,
+      dryRun: false,
+      id: "home",
+      manifestPath: ".vref/manifest.json",
+      patch: { file: "screenshots/other.webp" },
+    }).catch((error: unknown) => error as VrefError);
+
+    expect(failure.code).toBe("VREF_FIELD_IMMUTABLE");
+    // `screenshot add` rejects an existing id before it looks at --force, so
+    // pointing there would be a dead end.
+    expect(failure.message).toContain("vref screenshot remove");
+    await expect(
+      addScreenshotFromSource({
+        cwd: root,
+        draft: draftFor("home"),
+        dryRun: false,
+        force: true,
+        manifestPath: ".vref/manifest.json",
+        sourcePath: "capture.png",
+      }),
+    ).rejects.toThrow(expect.objectContaining({ code: "VREF_MANIFEST_DUPLICATE_ID" }));
+  });
+
+  it("declares every asset extension a remove can unlink", () => {
+    const schema = describeCli() as {
+      commands: { screenshot: { remove: { mutates: string[] } } };
+    };
+
+    // Legacy .jpg/.png entries are still valid, and remove unlinks whatever the
+    // entry points at, so a webp-only glob would understate the mutation scope.
+    expect(schema.commands.screenshot.remove.mutates).toContain(".vref/screenshots/*");
+  });
+
   it("names the id a remove cannot find", async () => {
     const root = await seedEntry("home");
 

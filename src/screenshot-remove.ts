@@ -45,6 +45,15 @@ export async function removeScreenshot(
     );
   }
 
+  // Resolved and checked before the manifest is written, and on a dry run too:
+  // a refusal has to leave nothing behind, and an unsafe asset path discovered
+  // after the write would report a durable change as a failure.
+  let assetPath: string | undefined;
+  if (!options.keepAsset) {
+    assetPath = join(paths.manifestDir, safeManifestAssetPath(screenshot.file, "file"));
+    await assertNoSymlinkInPath(paths.manifestDir, assetPath, "screenshot asset");
+  }
+
   const nextDocument = {
     ...document,
     screenshots: rawScreenshots(document).filter((entry) => !isEntryWithId(entry, options.id)),
@@ -55,10 +64,7 @@ export async function removeScreenshot(
   if (!options.dryRun) {
     await writeManifestDocument(paths.manifestPath, touchUpdatedAt(nextDocument));
 
-    if (!options.keepAsset) {
-      const assetPath = join(paths.manifestDir, safeManifestAssetPath(screenshot.file, "file"));
-      await assertNoSymlinkInPath(paths.manifestDir, assetPath, "screenshot asset");
-
+    if (assetPath !== undefined) {
       // An asset that will not unlink is reported, not fatal: the entry is
       // already gone, so failing here would report a durable change as an error.
       try {
