@@ -9,7 +9,13 @@ import {
   writeManifestDocument,
 } from "./manifest.js";
 import { assertNoSymlinkInPath, workspacePaths } from "./path-safety.js";
-import type { VrefManifestAddResult, VrefScreenshot, VrefScreenshotDraft } from "./types.js";
+import { rawScreenshots, screenshotById } from "./screenshot-select.js";
+import type {
+  VrefManifestAddResult,
+  VrefManifestUpdateResult,
+  VrefScreenshot,
+  VrefScreenshotDraft,
+} from "./types.js";
 
 export type AddScreenshotOptions = {
   cwd: string;
@@ -32,7 +38,7 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
 
   const assetPath = join(paths.manifestDir, options.screenshot.file);
   const assetExists = await screenshotAssetExists(paths.manifestDir, assetPath);
-  const nextScreenshots = [...readRawScreenshots(document), options.screenshot];
+  const nextScreenshots = [...rawScreenshots(document), options.screenshot];
   const nextDocument = {
     ...document,
     screenshots: nextScreenshots,
@@ -49,6 +55,83 @@ export async function addScreenshot(options: AddScreenshotOptions): Promise<Vref
     screenshot: options.screenshot,
     screenshotCount: nextScreenshots.length,
   };
+}
+
+export type UpdateScreenshotOptions = {
+  cwd: string;
+  dryRun: boolean;
+  id: string;
+  manifestPath: string;
+  patch: Record<string, unknown>;
+};
+
+/** Fields an update refuses, with what to reach for instead. */
+const IMMUTABLE_FIELDS: Record<string, string> = {
+  id: "`id` selects the entry; remove it and add the replacement to rename one.",
+  file: "`file` names the asset, and sizeBytes and viewport describe it. Use `vref screenshot add --force`.",
+  sizeBytes: "`sizeBytes` is measured from the asset. Use `vref screenshot add --force`.",
+};
+
+/**
+ * Merge named fields into one entry, leaving the rest as authored.
+ *
+ * Only what the patch names changes, so an edit is the fields it mentions
+ * rather than a whole entry resent. The merged result is decoded before it is
+ * written, so a patch cannot leave the manifest in a shape `validate` rejects.
+ */
+export async function updateScreenshot(
+  options: UpdateScreenshotOptions,
+): Promise<VrefManifestUpdateResult> {
+  const paths = workspacePaths(options.cwd, options.manifestPath);
+  await assertNoSymlinkInPath(paths.cwd, paths.manifestPath, "manifest");
+  const { document, manifest } = await readManifestDocument(paths.manifestPath);
+  screenshotById(manifest.screenshots, options.id);
+
+  for (const [field, reason] of Object.entries(IMMUTABLE_FIELDS)) {
+    if (field in options.patch) {
+      throw new VrefError("VREF_FIELD_IMMUTABLE", `--json cannot change ${field}. ${reason}`);
+    }
+  }
+
+  const entries = rawScreenshots(document);
+  const index = entries.findIndex(
+    (entry) =>
+      typeof entry === "object" && entry !== null && (entry as { id?: unknown }).id === options.id,
+  );
+  const current = entries[index] as Record<string, unknown>;
+  const merged = { ...current, ...options.patch };
+  const screenshot = screenshotFromJson(merged, "--json");
+  const changedFields = Object.keys(options.patch)
+    .filter((field) => JSON.stringify(current[field]) !== JSON.stringify(options.patch[field]))
+    .sort();
+
+  const nextEntries = [...entries];
+  nextEntries[index] = merged;
+
+  if (!options.dryRun) {
+    await writeManifestDocument(
+      paths.manifestPath,
+      touchUpdatedAt({ ...document, screenshots: nextEntries }),
+    );
+  }
+
+  return {
+    changedFields,
+    dryRun: options.dryRun,
+    manifestPath: paths.manifestPath,
+    screenshot,
+    screenshotCount: entries.length,
+  };
+}
+
+export function decodePatchJson(rawJson: string): Record<string, unknown> {
+  const parsed = parseJson(rawJson);
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new VrefError("VREF_JSON_INVALID", "--json must contain a screenshot object");
+  }
+
+  return parsed as Record<string, unknown>;
 }
 
 export function decodeScreenshotJson(rawJson: string): VrefScreenshot {
@@ -82,12 +165,4 @@ async function screenshotAssetExists(rootPath: string, assetPath: string): Promi
     }
     throw new VrefError("VREF_ASSET_CHECK_FAILED", "screenshot asset could not be checked");
   }
-}
-
-function readRawScreenshots(document: Record<string, unknown>): unknown[] {
-  if (Array.isArray(document.screenshots)) {
-    return document.screenshots;
-  }
-
-  throw new VrefError("VREF_MANIFEST_SCHEMA_INVALID", "manifest:screenshots must be an array");
 }

@@ -78,6 +78,36 @@ For an entry whose file you are placing yourself, `vref manifest add --json
 '<entry>'` appends one schema-checked entry and touches nothing else. It reports
 whether the referenced asset exists but never encodes or copies it.
 
+## Edit And Remove
+
+`vref manifest update <id> --json '<fields>'` changes only the fields the patch
+names; everything else on the entry, including fields `vref` does not model,
+stays as authored. `changedFields` reports what actually moved, so a patch that
+resends an unchanged value reports nothing.
+
+```bash
+vref manifest update home --json '{"title":"Home grid","tags":["home","grid"]}' --output json
+```
+
+It refuses `id`, `file`, and `sizeBytes`. Those describe the asset rather than
+the text, and changing `file` alone would leave `sizeBytes` and `viewport`
+describing the old image; `vref screenshot add --force` is the command that
+re-encodes and re-measures together. Renaming an id is a remove and an add.
+
+`vref screenshot remove <id>` drops the entry and the file it references:
+
+```bash
+vref screenshot remove home --dry-run --output json
+vref screenshot remove home
+```
+
+`--keep-asset` removes only the entry and leaves the file, which `validate`
+then reports under `orphanAssets`. When a second entry references the same
+file, deleting it would leave that entry unresolvable, so the command refuses
+with `VREF_ASSET_CLAIMED` and names the other id rather than guessing;
+`--keep-asset` is the way through. The manifest is written before the file is
+unlinked, so an interrupted run leaves every surviving entry resolvable.
+
 ## Image Format
 
 References are webp. Sources may be `.png`, `.jpg`, `.jpeg`, or `.webp`; output is

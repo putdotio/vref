@@ -104,3 +104,22 @@ export type VrefManifestAddResult = {
   screenshot: VrefScreenshot;
   screenshotCount: number;
 };
+
+export type VrefScreenshotRemoveResult = {
+  /** Whether the asset was unlinked. False under --keep-asset, a dry run, or a failed unlink. */
+  assetDeleted: boolean;
+  dryRun: boolean;
+  file: string;
+  manifestPath: string;
+  screenshot: VrefScreenshot;
+  screenshotCount: number;
+};
+
+export type VrefManifestUpdateResult = {
+  /** Patch fields whose value actually differed from the entry. */
+  changedFields: string[];
+  dryRun: boolean;
+  manifestPath: string;
+  screenshot: VrefScreenshot;
+  screenshotCount: number;
+};

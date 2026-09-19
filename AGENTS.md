@@ -30,6 +30,8 @@
 - `vref screenshot add ./capture.png --json '{"id":"home",...}' --dry-run --output json`
 - `vref convert --dry-run --output json`
 - `vref manifest add --json '{"id":"home",...}' --dry-run --output json`
+- `vref manifest update home --json '{"title":"Home"}' --dry-run --output json`
+- `vref screenshot remove home --dry-run --output json`
 - `vref describe --output json`
 
 ## Effect

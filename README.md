@@ -94,6 +94,8 @@ Preview an add without writing anything:
 
 ```bash
 vref screenshot add ./capture.png --json '{"id":"home",...}' --dry-run --output json
+vref manifest update home --json '{"title":"Home"}' --dry-run --output json
+vref screenshot remove home --dry-run --output json
 ```
 
 Migrate an existing png or jpeg reference set. Legacy entries keep validating,

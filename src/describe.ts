@@ -173,6 +173,43 @@ export function describeCli(): unknown {
             help: { type: "boolean", flags: ["--help"], default: false },
           },
         },
+        remove: {
+          description:
+            "Drop one screenshot entry and the asset it references. Refuses when another entry references the same file.",
+          mutates: [".vref/manifest.json", ".vref/screenshots/*.webp"],
+          positionals: [{ name: "id", required: true, description: "Screenshot id to remove." }],
+          options: {
+            manifest: { type: "string", default: ".vref/manifest.json" },
+            keepAsset: {
+              type: "boolean",
+              flags: ["--keep-asset"],
+              default: false,
+              description:
+                "Remove the entry and leave the file. validate then reports it under orphanAssets.",
+            },
+            dryRun: {
+              type: "boolean",
+              flags: ["--dry-run", "--check"],
+              default: false,
+              description: "Report what would be removed without writing or unlinking.",
+            },
+            outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+            fields: {
+              flag: "--fields",
+              type: "string",
+              scope: "top-level result fields",
+              values: [
+                "assetDeleted",
+                "dryRun",
+                "file",
+                "manifestPath",
+                "screenshot",
+                "screenshotCount",
+              ],
+            },
+            help: { type: "boolean", flags: ["--help"], default: false },
+          },
+        },
       },
       convert: {
         description:
@@ -258,6 +295,37 @@ export function describeCli(): unknown {
               type: "string",
               scope: "top-level result fields",
               values: ["assetExists", "dryRun", "manifestPath", "screenshot", "screenshotCount"],
+            },
+            help: { type: "boolean", flags: ["--help"], default: false },
+          },
+        },
+        update: {
+          description:
+            "Merge named fields into one existing entry. Fields the patch omits keep their value.",
+          mutates: [".vref/manifest.json"],
+          positionals: [{ name: "id", required: true, description: "Screenshot id to update." }],
+          options: {
+            manifest: { type: "string", default: ".vref/manifest.json" },
+            json: {
+              flag: "--json",
+              type: "object",
+              schema: "partial manifest.screenshots[]",
+              required: true,
+              description:
+                "Fields to change. Rejects id, file, and sizeBytes: those describe the asset, not the text.",
+            },
+            dryRun: {
+              type: "boolean",
+              flags: ["--dry-run", "--check"],
+              default: false,
+              description: "Validate the merged entry without writing.",
+            },
+            outputFormat: { flag: "--output", values: ["human", "json"], default: "human" },
+            fields: {
+              flag: "--fields",
+              type: "string",
+              scope: "top-level result fields",
+              values: ["changedFields", "dryRun", "manifestPath", "screenshot", "screenshotCount"],
             },
             help: { type: "boolean", flags: ["--help"], default: false },
           },

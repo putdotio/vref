@@ -23,6 +23,8 @@ vref manifest add --json '{"id":"settings","title":"Settings","group":"Main page
 Convert an existing png or jpeg reference set to webp:
 
 ```bash
+vref manifest update settings --json '{"title":"Settings page"}' --dry-run --output json
+vref screenshot remove settings --dry-run --output json
 vref convert --dry-run --output json
 vref convert --only home,settings --output json
 ```
