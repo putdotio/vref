@@ -10,6 +10,8 @@ Merges to `main` are publishable.
 Those two links are absolute because neither file ships in the tarball, where a
 relative link would dead-end.
 
+The release job calls the [shared frontend release workflow](https://github.com/putdotio/.github/blob/main/frontend/README.md) from `putdotio/.github`, pinned to a tagged commit; the semantic-release action and plugin pins live there. [`scan.yml`](https://github.com/putdotio/vref/blob/main/.github/workflows/scan.yml) calls the shared frontend scan workflow from the same repository: Gitleaks, TruffleHog, Actionlint, and Zizmor on pull requests, weekly, and on manual dispatch.
+
 Release expectations:
 
 - npm package: `@putdotio/vref`, public access
