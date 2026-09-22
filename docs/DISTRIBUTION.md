@@ -10,6 +10,8 @@ Merges to `main` are publishable.
 Those two links are absolute because neither file ships in the tarball, where a
 relative link would dead-end.
 
+The release job calls the shared [`frontend-release-npm.yml`](https://github.com/putdotio/.github/blob/main/frontend/README.md) workflow from `putdotio/.github`, pinned to a tagged commit; the semantic-release action and plugin pins live there.
+
 Release expectations:
 
 - npm package: `@putdotio/vref`, public access
