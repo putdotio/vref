@@ -187,10 +187,10 @@ importers:
     dependencies:
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1)
+        version: 4.0.0-rc.115(effect@4.0.0-rc.117)(redis@6.2.1)
       effect:
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115
+        specifier: 4.0.0-rc.117
+        version: 4.0.0-rc.117
       sharp:
         specifier: ^0.35.4
         version: 0.35.4(@types/node@26.1.2)
@@ -203,7 +203,7 @@ importers:
         version: 0.5.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 4.1.11(vitest@4.1.11)
+        version: 4.1.11(@vitest/browser@4.1.11)(vitest@4.1.11)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1262,8 +1262,8 @@ packages:
   dom-accessibility-api@0.5.16:
     resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
 
-  effect@4.0.0-rc.115:
-    resolution: {integrity: sha512-ogYulZ5ffeOzrJqQrG0XOkDO5lKn2s9KNHhoxJy/6wKUkF0i12dlVXWA9TgsgQ+zV/JzizyG0+XMPepZEQX6vw==}
+  effect@4.0.0-rc.117:
+    resolution: {integrity: sha512-UUyi9QiOW4nySFIBM3KnYbNMd9EZliOdKfBcyLD0mPMPheO2fkuXS5y0opjWc9oqzlJxPQICEGm8gGw3kh9j/w==}
 
   es-module-lexer@2.3.1:
     resolution: {integrity: sha512-shc1dbU90Yl/xq1QrC7QRtfcwURZuVRfPhZbDoldJ1cn1gzDvBaBWlv0eFolj5+0znnPJz5TXLxsN77X/12KTA==}
@@ -1654,19 +1654,19 @@ snapshots:
 
   '@blazediff/core@1.9.1': {}
 
-  '@effect/platform-node-shared@4.0.0-rc.115(effect@4.0.0-rc.115)':
+  '@effect/platform-node-shared@4.0.0-rc.115(effect@4.0.0-rc.117)':
     dependencies:
       '@types/ws': 8.18.1
-      effect: 4.0.0-rc.115
+      effect: 4.0.0-rc.117
       ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1)':
+  '@effect/platform-node@4.0.0-rc.115(effect@4.0.0-rc.117)(redis@6.2.1)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.0-rc.115(effect@4.0.0-rc.115)
-      effect: 4.0.0-rc.115
+      '@effect/platform-node-shared': 4.0.0-rc.115(effect@4.0.0-rc.117)
+      effect: 4.0.0-rc.117
       redis: 6.2.1
       undici: 8.10.2
     transitivePeerDependencies:
@@ -2080,7 +2080,7 @@ snapshots:
       - utf-8-validate
       - vite
 
-  '@vitest/coverage-v8@4.1.11(vitest@4.1.11)':
+  '@vitest/coverage-v8@4.1.11(@vitest/browser@4.1.11)(vitest@4.1.11)':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.1.11
@@ -2093,6 +2093,8 @@ snapshots:
       std-env: 4.2.0
       tinyrainbow: 3.1.1
       vitest: 4.1.11(@types/node@26.1.2)(@vitest/browser-preview@4.1.11)(@vitest/coverage-v8@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.1.2)(typescript@7.0.2))
+    optionalDependencies:
+      '@vitest/browser': 4.1.11(@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.1.2)(typescript@7.0.2))(vitest@4.1.11)
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -2282,7 +2284,7 @@ snapshots:
 
   dom-accessibility-api@0.5.16: {}
 
-  effect@4.0.0-rc.115: {}
+  effect@4.0.0-rc.117: {}
 
   es-module-lexer@2.3.1: {}
 
@@ -2662,7 +2664,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 26.1.2
       '@vitest/browser-preview': 4.1.11(@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.1.2)(typescript@7.0.2))(vitest@4.1.11)
-      '@vitest/coverage-v8': 4.1.11(vitest@4.1.11)
+      '@vitest/coverage-v8': 4.1.11(@vitest/browser@4.1.11)(vitest@4.1.11)
     transitivePeerDependencies:
       - msw
 
