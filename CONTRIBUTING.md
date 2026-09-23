@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Node `>=24.19.0` and pnpm.
+Use the Node version in [`.node-version`](./.node-version) and [pnpm](https://pnpm.io/installation).
 
 ```bash
 pnpm install
