@@ -20,7 +20,7 @@ Release expectations:
 
 ## Package Contents
 
-`files` in [`package.json`](https://github.com/putdotio/vref/blob/main/package.json)
+`files` in [`package.json`](../package.json)
 lists what the npm package ships. The reusable vref skill ships at
 `skills/vref/SKILL.md` so consumer repos and shared skill installers can
 discover it, and `CONTEXT.md` travels with it because the packaged `AGENTS.md`
