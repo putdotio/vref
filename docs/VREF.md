@@ -23,9 +23,8 @@ Every command that rewrites the manifest stamps `updatedAt`, so the date the
 gallery displays is the date it last changed. A dry run leaves the file byte
 for byte as it was.
 
-`build`, `validate`, `screenshot add`, `convert`, and `manifest add` all take
-`--manifest`, so a repo mid-migration can keep its manifest somewhere else, such
-as `docs/visual/manifest.json`. Screenshot paths resolve relative to whichever
+Every command that reads a manifest takes `--manifest`, so a repo mid-migration
+can keep it somewhere else, such as `docs/visual/manifest.json`. Screenshot paths resolve relative to whichever
 directory holds the manifest.
 
 Point the gallery at that directory too. `--out` is independent of `--manifest`

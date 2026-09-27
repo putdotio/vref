@@ -17,32 +17,14 @@
 
 ## Commands
 
-- `pnpm install`
-- `pnpm run build`
-- `pnpm run check`
-- `pnpm run test`
-- `pnpm run verify`
-- `pnpm run coverage`
-- `vref validate --output json`
-- `vref build`
-- `vref build --check --output json`
-- `vref serve`
-- `vref screenshot add ./capture.png --json '{"id":"home",...}' --dry-run --output json`
-- `vref convert --dry-run --output json`
-- `vref manifest add --json '{"id":"home",...}' --dry-run --output json`
-- `vref manifest update home --json '{"title":"Home"}' --dry-run --output json`
-- `vref screenshot remove home --dry-run --output json`
-- `vref describe --output json`
+- `pnpm install`, then `pnpm run verify` for the full gate; focused scripts are in [Contributing](https://github.com/putdotio/vref/blob/main/CONTRIBUTING.md#validation)
+- `vref describe --output json` lists every CLI command, flag, `--fields` value, and error code; usage examples are in the [README](./README.md) and [Visual Reference Guide](./docs/VREF.md)
 
 ## Effect
 
-This repository uses the Effect TypeScript library.
-
-Before writing any Effect code, first read `node_modules/effect/AGENTS.md`
-**completely**, and follow the links in the file when required.
-
-If you need to learn more about particular Effect APIs and concepts that the
-guide doesn't cover, search through the source code in `node_modules/effect/src`.
+This repository uses the Effect TypeScript library. The installed version's own
+guide is `node_modules/effect/AGENTS.md`; consult it for the APIs the change
+touches, and search `node_modules/effect/src` for anything it does not cover.
 
 ## Repo-Specific Guidance
 

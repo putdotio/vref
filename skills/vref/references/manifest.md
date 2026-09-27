@@ -20,7 +20,7 @@ Add a metadata-only entry, for a file you are placing yourself:
 vref manifest add --json '{"id":"settings","title":"Settings","group":"Main pages","platform":"Roku","device":"Roku 720p","viewport":{"width":1280,"height":720},"file":"screenshots/roku-720p/settings.webp","capturedAt":"2026-05-19T13:35:00.000Z","sizeBytes":39716,"tags":["settings"],"notes":["Settings page."]}' --dry-run --output json
 ```
 
-Convert an existing png or jpeg reference set to webp:
+Edit or remove entries, and convert an existing png or jpeg reference set to webp:
 
 ```bash
 vref manifest update settings --json '{"title":"Settings page"}' --dry-run --output json
