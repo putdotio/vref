@@ -45,7 +45,7 @@
     "verify": "vp check . && skillcheck lint && vp run typecheck && vp pack src/index.ts src/cli.ts --dts && vp run smoke && vp test && npm pack --dry-run"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-node": "4.0.0-rc.117",
     "effect": "4.0.0-rc.117",
     "sharp": "^0.35.4"
   },
