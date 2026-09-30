@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { isIP } from "node:net";
@@ -91,8 +92,10 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
       const filePath = await resolveServableFile(root, relativePath);
       // Size and body come from one open handle. A path-based stat followed by
       // a separate open can straddle `vref build` replacing the file, and the
-      // response would promise one length while streaming another.
-      const handle = await open(filePath, "r");
+      // response would promise one length while streaming another. Opening a
+      // FIFO blocks until a writer appears, so open non-blocking and let the
+      // type check below turn it away; regular files ignore the flag.
+      const handle = await open(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
       try {
         const fileStats = await handle.stat();
         if (!fileStats.isFile()) {

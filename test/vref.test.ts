@@ -13,6 +13,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { hostname, tmpdir } from "node:os";
@@ -583,6 +584,23 @@ describe("vref", () => {
     expect(allowed("workstation.local:4173")).toBe(true);
     expect(allowed("example.net")).toBe(false);
     expect(allowed("workstation.evil.example")).toBe(false);
+  });
+
+  it.skipIf(process.platform === "win32")("answers 404 for a named pipe", async () => {
+    const root = await makeFixture();
+    execFileSync("mkfifo", [join(root, ".vref/pipe")]);
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: 0 });
+          const status = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/pipe", "127.0.0.1"),
+          );
+          expect(status).toBe(404);
+        }),
+      ),
+    );
   });
 
   it("refuses a symlinked serve root", async () => {
