@@ -3,6 +3,7 @@ import {
   mkdir,
   readdir,
   mkdtemp,
+  open,
   readFile,
   realpath,
   rm,
@@ -12,14 +13,15 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Cause, Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
-import { buildGallery, validateGallery } from "../src/build.js";
+import { buildGallery, orphansIn, validateGallery } from "../src/build.js";
 import {
   COMMAND_FIELDS,
   COMMAND_FLAGS,
@@ -43,7 +45,7 @@ import {
 import { renderGallery } from "../src/render.js";
 import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { removeScreenshot } from "../src/screenshot-remove.js";
-import { resolveServableFile, serve } from "../src/serve.js";
+import { isAllowedHost, resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest, VrefScreenshotDraft } from "../src/types.js";
 
 describe("vref", () => {
@@ -89,6 +91,35 @@ describe("vref", () => {
     expect(html).not.toContain("&rarr;");
     expect(html).not.toContain("item-icon");
     expect(html).not.toContain(">TV<");
+  });
+
+  it("leaves a reader of the previous gallery a complete file across a rebuild", async () => {
+    const root = await makeFixture();
+    const options = {
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    };
+    await buildGallery(options);
+    const previous = await readFile(join(root, ".vref/index.html"), "utf8");
+    // What `vref serve` holds while it streams the gallery.
+    const reader = await open(join(root, ".vref/index.html"), "r");
+
+    try {
+      const manifest = JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8"));
+      await writeFile(
+        join(root, ".vref/manifest.json"),
+        JSON.stringify({ ...manifest, title: "A rebuilt visual reference" }),
+      );
+      await buildGallery(options);
+
+      expect(await reader.readFile("utf8")).toBe(previous);
+      expect(await readFile(join(root, ".vref/index.html"), "utf8")).toContain(
+        "A rebuilt visual reference",
+      );
+    } finally {
+      await reader.close();
+    }
   });
 
   it("keeps arbitrary filter labels inert and distinct from All", async () => {
@@ -504,6 +535,70 @@ describe("vref", () => {
             statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "[::1]", "::1"),
           );
           expect(status).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("accepts a request to the url it printed for a shorthand IPv4 host", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.tryPromise(() => makeFixture());
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.1", port: 0 });
+          const status = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "127.0.0.1"),
+          );
+          expect(status).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("refuses a rebound name on a wildcard bind and accepts addresses", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.tryPromise(() => makeFixture());
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "0.0.0.0", port: 0 });
+          const statusFor = (host: string) =>
+            Effect.tryPromise(() =>
+              statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", host),
+            );
+
+          expect(yield* statusFor("evil.example.com")).toBe(403);
+          expect(yield* statusFor("127.0.0.1")).toBe(200);
+          expect(yield* statusFor("192.168.1.20")).toBe(200);
+          expect(yield* statusFor("localhost")).toBe(200);
+          expect(yield* statusFor(hostname())).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("accepts the short name of a fully qualified machine hostname on a wildcard bind", () => {
+    const allowed = (host: string) => isAllowedHost(host, "0.0.0.0", "workstation.example.net");
+
+    expect(allowed("workstation.example.net")).toBe(true);
+    expect(allowed("workstation")).toBe(true);
+    expect(allowed("workstation.local:4173")).toBe(true);
+    expect(allowed("example.net")).toBe(false);
+    expect(allowed("workstation.example.net.local")).toBe(false);
+    expect(allowed("workstation.evil.example")).toBe(false);
+  });
+
+  it.skipIf(process.platform === "win32")("answers 404 for a named pipe", async () => {
+    const root = await makeFixture();
+    execFileSync("mkfifo", [join(root, ".vref/pipe")]);
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.0.0.1", port: 0 });
+          const status = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/pipe", "127.0.0.1"),
+          );
+          expect(status).toBe(404);
         }),
       ),
     );
@@ -2993,6 +3088,17 @@ describe("orphan assets", () => {
 const FOLDS_CASE = foldsCase();
 
 describe("case-variant orphans", () => {
+  it("reports a case variant when the referenced file is listed in another normalization", () => {
+    // A case-sensitive volume that lists names in NFD, as HFS+-style storage
+    // does: the entry's file appears decomposed, and the variant is a leftover.
+    const listed = "screenshots/café.webp".normalize("NFD");
+    const variant = "screenshots/CAFÉ.webp".normalize("NFD");
+
+    expect(
+      orphansIn([listed, variant], new Set(["screenshots/café.webp".normalize("NFC")])),
+    ).toEqual([variant]);
+  });
+
   // Which answer is right depends on the filesystem, so each half runs where it
   // can: CI is Linux and case-sensitive, a developer machine usually is not.
   it.skipIf(!FOLDS_CASE)("treats a case-variant spelling as the referenced file", async () => {

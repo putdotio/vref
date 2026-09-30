@@ -1,7 +1,8 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { isIP } from "node:net";
+import { hostname as machineHostname } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Effect } from "effect";
@@ -89,26 +90,39 @@ export const serve = Effect.fn("vref.serve")(function* (options: ServeOptions) {
 
     try {
       const filePath = await resolveServableFile(root, relativePath);
-      const fileStats = await stat(filePath);
-      if (!fileStats.isFile()) {
-        response.writeHead(404, securityHeaders());
-        response.end("Not found");
-        return;
+      // Size and body come from one open handle. A path-based stat followed by
+      // a separate open can straddle `vref build` replacing the file, and the
+      // response would promise one length while streaming another. Opening a
+      // FIFO blocks until a writer appears, so open non-blocking and let the
+      // type check below turn it away; regular files ignore the flag.
+      const handle = await open(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+      try {
+        const fileStats = await handle.stat();
+        if (!fileStats.isFile()) {
+          response.writeHead(404, securityHeaders());
+          response.end("Not found");
+          return;
+        }
+
+        response.writeHead(200, {
+          ...securityHeaders(),
+          "content-type": contentType(filePath),
+          "content-length": String(fileStats.size),
+        });
+
+        // HEAD carries the headers and nothing else.
+        if (request.method === "HEAD" || fileStats.size === 0) {
+          response.end();
+          return;
+        }
+
+        await pipeline(
+          handle.createReadStream({ autoClose: false, start: 0, end: fileStats.size - 1 }),
+          response,
+        );
+      } finally {
+        await handle.close();
       }
-
-      response.writeHead(200, {
-        ...securityHeaders(),
-        "content-type": contentType(filePath),
-        "content-length": String(fileStats.size),
-      });
-
-      // HEAD carries the headers and nothing else.
-      if (request.method === "HEAD") {
-        response.end();
-        return;
-      }
-
-      await pipeline(createReadStream(filePath), response);
     } catch (error) {
       if (error instanceof VrefError && error.code === "VREF_BAD_SERVE_PATH") {
         response.writeHead(400, securityHeaders());
@@ -247,7 +261,11 @@ function securityHeaders(): Record<string, string> {
  * Anything else is a name that merely resolves here, which is the shape of a
  * rebinding request rather than a developer opening the printed url.
  */
-function isAllowedHost(requestHost: string | undefined, boundHost: string): boolean {
+export function isAllowedHost(
+  requestHost: string | undefined,
+  boundHost: string,
+  machineName = machineHostname(),
+): boolean {
   if (requestHost === undefined) {
     return false;
   }
@@ -255,32 +273,60 @@ function isAllowedHost(requestHost: string | undefined, boundHost: string): bool
   const hostname = canonicalHost(requestHost.replace(/:\d+$/u, ""));
   const bound = canonicalHost(boundHost);
 
-  // A server bound to every interface has no single name to check against.
-  if (bound === "0.0.0.0" || bound === "::" || bound === "") {
+  if (hostname === bound) {
     return true;
   }
 
   const loopback = new Set(["127.0.0.1", "localhost", "::1"]);
 
-  return hostname === bound || (loopback.has(bound) && loopback.has(hostname));
+  if (!WILDCARD_HOSTS.has(bound)) {
+    return loopback.has(bound) && loopback.has(hostname);
+  }
+
+  // A server bound to every interface answers to addresses and names nobody
+  // listed, but only a name can be rebound: a page whose own origin is an IP
+  // literal is already same-origin with whatever it reaches there. So any IP
+  // literal passes, and names stay limited to loopback and this machine's own.
+  return isIP(hostname) !== 0 || loopback.has(hostname) || machineNames(machineName).has(hostname);
+}
+
+const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", ""]);
+
+/**
+ * The names a LAN peer may use to reach this machine without extra DNS.
+ *
+ * A fully qualified hostname still answers to its first label, over mDNS and
+ * through the resolver's search domain, so both spellings count.
+ */
+function machineNames(machineName: string): Set<string> {
+  const name = canonicalHost(machineName);
+  const bare = name.replace(/\.local$/u, "");
+  const short = bare.split(".")[0] ?? bare;
+
+  // mDNS names are single-label, so only the short name gains `.local`; any
+  // other `.local` spelling is unclaimed and a LAN peer could answer for it.
+  return new Set([name, bare, short, `${short}.local`]);
 }
 
 /**
  * Fold a host to one spelling.
  *
- * `0:0:0:0:0:0:0:1` and `::1` are the same address, and a URL client sends the
- * canonical form in Host. Comparing the text the user typed would 403 a request
- * to the very url `vref serve` printed.
+ * `0:0:0:0:0:0:0:1` and `::1` are the same address, as are `127.1` and
+ * `127.0.0.1`, and a URL client sends the canonical form in Host. Comparing the
+ * text the user typed would 403 a request to the very url `vref serve` printed.
+ * Only plain host characters reach the URL parser, so a Host carrying a path or
+ * userinfo cannot parse down to an allowed name.
  */
 function canonicalHost(host: string): string {
   const bare = host.replace(/^\[|\]$/gu, "").toLowerCase();
+  const isIPv6 = isIP(bare) === 6;
 
-  if (isIP(bare) !== 6) {
+  if (!isIPv6 && !/^[0-9a-z.-]+$/u.test(bare)) {
     return bare;
   }
 
   try {
-    return new URL(`http://[${bare}]`).hostname.replace(/^\[|\]$/gu, "");
+    return new URL(`http://${isIPv6 ? `[${bare}]` : bare}`).hostname.replace(/^\[|\]$/gu, "");
   } catch {
     return bare;
   }
