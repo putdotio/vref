@@ -303,7 +303,9 @@ function machineNames(machineName: string): Set<string> {
   const bare = name.replace(/\.local$/u, "");
   const short = bare.split(".")[0] ?? bare;
 
-  return new Set([name, bare, `${bare}.local`, short, `${short}.local`]);
+  // mDNS names are single-label, so only the short name gains `.local`; any
+  // other `.local` spelling is unclaimed and a LAN peer could answer for it.
+  return new Set([name, bare, short, `${short}.local`]);
 }
 
 /**

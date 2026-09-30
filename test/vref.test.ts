@@ -583,6 +583,7 @@ describe("vref", () => {
     expect(allowed("workstation")).toBe(true);
     expect(allowed("workstation.local:4173")).toBe(true);
     expect(allowed("example.net")).toBe(false);
+    expect(allowed("workstation.example.net.local")).toBe(false);
     expect(allowed("workstation.evil.example")).toBe(false);
   });
 
