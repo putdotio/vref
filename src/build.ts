@@ -1,6 +1,7 @@
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathKey } from "./asset.js";
+import { writeFileAtomically } from "./atomic-write.js";
 import { VrefError } from "./errors.js";
 import { readManifest } from "./manifest.js";
 import {
@@ -30,7 +31,11 @@ export async function buildGallery(options: BuildGalleryOptions): Promise<VrefBu
   await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
   await mkdir(dirname(outputPath), { recursive: true });
   await assertNoSymlinkInPath(paths.cwd, outputPath, "output");
-  await writeFile(outputPath, renderGallery(manifest, { manifestLabel: options.manifestPath }));
+  // `vref serve` may be reading the gallery while this replaces it.
+  await writeFileAtomically(
+    outputPath,
+    renderGallery(manifest, { manifestLabel: options.manifestPath }),
+  );
 
   return {
     manifestPath: validation.manifestPath,
@@ -126,10 +131,13 @@ async function findOrphanAssets(
 
   await walk("");
 
-  const present = new Set(found);
+  const listing = {
+    exact: new Set(found),
+    normalized: new Set(found.map((file) => file.normalize("NFC"))),
+  };
   const claims = new Map([...referenced].map((file) => [pathKey(file), file] as const));
 
-  return found.filter((file) => isOrphan(file, present, referenced, claims)).sort();
+  return found.filter((file) => isOrphan(file, listing, referenced, claims)).sort();
 }
 
 /**
@@ -141,10 +149,15 @@ async function findOrphanAssets(
  * on macOS. Rather than probe the filesystem, ask whether the entry's own
  * spelling is in the listing. If it is, the entry means that file and this one
  * is a genuine leftover; if it is not, this file is what the entry resolves to.
+ *
+ * A file that differs from the entry only by normalization competes with the
+ * exact spelling alone. A case variant competes with any normalization of it: a
+ * volume can be case-sensitive yet list an NFC name in NFD, so the entry's file
+ * may appear in the other form while a case variant sits beside it.
  */
 function isOrphan(
   file: string,
-  present: ReadonlySet<string>,
+  listing: { exact: ReadonlySet<string>; normalized: ReadonlySet<string> },
   referenced: ReadonlySet<string>,
   claims: ReadonlyMap<string, string>,
 ): boolean {
@@ -153,6 +166,13 @@ function isOrphan(
   }
 
   const claim = claims.get(pathKey(file));
+  if (claim === undefined) {
+    return true;
+  }
 
-  return claim === undefined || present.has(claim);
+  const spelling = claim.normalize("NFC");
+
+  return file.normalize("NFC") === spelling
+    ? listing.exact.has(claim)
+    : listing.normalized.has(spelling);
 }

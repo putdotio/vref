@@ -65,8 +65,9 @@ and `file` defaults to `screenshots/<id>.webp`:
 }
 ```
 
-Include any derived field in `--json` to override it. `viewport` is the one that
-usually needs it: the field records the logical dimensions a reference
+Include `file`, `viewport`, or `capturedAt` in `--json` to override the derived
+value; `sizeBytes` is always measured from the encoded webp. `viewport` is the
+one that usually needs it: the field records the logical dimensions a reference
 represents, while the default measures the stored pixels. State it whenever the
 two differ — a retina capture stores 2x, and a scaled or cropped capture of any
 kind stores something else again. `--dry-run`

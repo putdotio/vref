@@ -14,7 +14,7 @@ import {
 } from "node:fs/promises";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Cause, Effect } from "effect";
@@ -504,6 +504,42 @@ describe("vref", () => {
             statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "[::1]", "::1"),
           );
           expect(status).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("accepts a request to the url it printed for a shorthand IPv4 host", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.tryPromise(() => makeFixture());
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "127.1", port: 0 });
+          const status = yield* Effect.tryPromise(() =>
+            statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", "127.0.0.1"),
+          );
+          expect(status).toBe(200);
+        }),
+      ),
+    );
+  });
+
+  it("refuses a rebound name on a wildcard bind and accepts addresses", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.tryPromise(() => makeFixture());
+          const result = yield* serve({ cwd: root, dir: ".vref", host: "0.0.0.0", port: 0 });
+          const statusFor = (host: string) =>
+            Effect.tryPromise(() =>
+              statusWithHost(result.port, "/screenshots/roku-720p/home.jpg", host),
+            );
+
+          expect(yield* statusFor("evil.example.com")).toBe(403);
+          expect(yield* statusFor("127.0.0.1")).toBe(200);
+          expect(yield* statusFor("192.168.1.20")).toBe(200);
+          expect(yield* statusFor("localhost")).toBe(200);
+          expect(yield* statusFor(hostname())).toBe(200);
         }),
       ),
     );
