@@ -3,6 +3,7 @@ import {
   mkdir,
   readdir,
   mkdtemp,
+  open,
   readFile,
   realpath,
   rm,
@@ -19,7 +20,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Cause, Effect } from "effect";
 import { describe, expect, it } from "vite-plus/test";
-import { buildGallery, validateGallery } from "../src/build.js";
+import { buildGallery, orphansIn, validateGallery } from "../src/build.js";
 import {
   COMMAND_FIELDS,
   COMMAND_FLAGS,
@@ -89,6 +90,35 @@ describe("vref", () => {
     expect(html).not.toContain("&rarr;");
     expect(html).not.toContain("item-icon");
     expect(html).not.toContain(">TV<");
+  });
+
+  it("leaves a reader of the previous gallery a complete file across a rebuild", async () => {
+    const root = await makeFixture();
+    const options = {
+      cwd: root,
+      manifestPath: ".vref/manifest.json",
+      outputPath: ".vref/index.html",
+    };
+    await buildGallery(options);
+    const previous = await readFile(join(root, ".vref/index.html"), "utf8");
+    // What `vref serve` holds while it streams the gallery.
+    const reader = await open(join(root, ".vref/index.html"), "r");
+
+    try {
+      const manifest = JSON.parse(await readFile(join(root, ".vref/manifest.json"), "utf8"));
+      await writeFile(
+        join(root, ".vref/manifest.json"),
+        JSON.stringify({ ...manifest, title: "A rebuilt visual reference" }),
+      );
+      await buildGallery(options);
+
+      expect(await reader.readFile("utf8")).toBe(previous);
+      expect(await readFile(join(root, ".vref/index.html"), "utf8")).toContain(
+        "A rebuilt visual reference",
+      );
+    } finally {
+      await reader.close();
+    }
   });
 
   it("keeps arbitrary filter labels inert and distinct from All", async () => {
@@ -3039,6 +3069,17 @@ describe("orphan assets", () => {
 const FOLDS_CASE = foldsCase();
 
 describe("case-variant orphans", () => {
+  it("reports a case variant when the referenced file is listed in another normalization", () => {
+    // A case-sensitive volume that lists names in NFD, as HFS+-style storage
+    // does: the entry's file appears decomposed, and the variant is a leftover.
+    const listed = "screenshots/café.webp".normalize("NFD");
+    const variant = "screenshots/CAFÉ.webp".normalize("NFD");
+
+    expect(
+      orphansIn([listed, variant], new Set(["screenshots/café.webp".normalize("NFC")])),
+    ).toEqual([variant]);
+  });
+
   // Which answer is right depends on the filesystem, so each half runs where it
   // can: CI is Linux and case-sensitive, a developer machine usually is not.
   it.skipIf(!FOLDS_CASE)("treats a case-variant spelling as the referenced file", async () => {

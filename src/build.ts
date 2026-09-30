@@ -131,6 +131,11 @@ async function findOrphanAssets(
 
   await walk("");
 
+  return orphansIn(found, referenced);
+}
+
+/** Which of the listed image files no entry claims; see {@link isOrphan}. */
+export function orphansIn(found: readonly string[], referenced: ReadonlySet<string>): string[] {
   const listing = {
     exact: new Set(found),
     normalized: new Set(found.map((file) => file.normalize("NFC"))),
