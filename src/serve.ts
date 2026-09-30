@@ -258,7 +258,11 @@ function securityHeaders(): Record<string, string> {
  * Anything else is a name that merely resolves here, which is the shape of a
  * rebinding request rather than a developer opening the printed url.
  */
-function isAllowedHost(requestHost: string | undefined, boundHost: string): boolean {
+export function isAllowedHost(
+  requestHost: string | undefined,
+  boundHost: string,
+  machineName = machineHostname(),
+): boolean {
   if (requestHost === undefined) {
     return false;
   }
@@ -280,17 +284,23 @@ function isAllowedHost(requestHost: string | undefined, boundHost: string): bool
   // listed, but only a name can be rebound: a page whose own origin is an IP
   // literal is already same-origin with whatever it reaches there. So any IP
   // literal passes, and names stay limited to loopback and this machine's own.
-  return isIP(hostname) !== 0 || loopback.has(hostname) || machineNames().has(hostname);
+  return isIP(hostname) !== 0 || loopback.has(hostname) || machineNames(machineName).has(hostname);
 }
 
 const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", ""]);
 
-/** The names a LAN peer may use to reach this machine without extra DNS. */
-function machineNames(): Set<string> {
-  const name = canonicalHost(machineHostname());
+/**
+ * The names a LAN peer may use to reach this machine without extra DNS.
+ *
+ * A fully qualified hostname still answers to its first label, over mDNS and
+ * through the resolver's search domain, so both spellings count.
+ */
+function machineNames(machineName: string): Set<string> {
+  const name = canonicalHost(machineName);
   const bare = name.replace(/\.local$/u, "");
+  const short = bare.split(".")[0] ?? bare;
 
-  return new Set([name, bare, `${bare}.local`]);
+  return new Set([name, bare, `${bare}.local`, short, `${short}.local`]);
 }
 
 /**

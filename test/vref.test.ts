@@ -43,7 +43,7 @@ import {
 import { renderGallery } from "../src/render.js";
 import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { removeScreenshot } from "../src/screenshot-remove.js";
-import { resolveServableFile, serve } from "../src/serve.js";
+import { isAllowedHost, resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest, VrefScreenshotDraft } from "../src/types.js";
 
 describe("vref", () => {
@@ -543,6 +543,16 @@ describe("vref", () => {
         }),
       ),
     );
+  });
+
+  it("accepts the short name of a fully qualified machine hostname on a wildcard bind", () => {
+    const allowed = (host: string) => isAllowedHost(host, "0.0.0.0", "workstation.example.net");
+
+    expect(allowed("workstation.example.net")).toBe(true);
+    expect(allowed("workstation")).toBe(true);
+    expect(allowed("workstation.local:4173")).toBe(true);
+    expect(allowed("example.net")).toBe(false);
+    expect(allowed("workstation.evil.example")).toBe(false);
   });
 
   it("refuses a symlinked serve root", async () => {
