@@ -199,8 +199,8 @@ importers:
         specifier: ^26.1.0
         version: 26.6.3
       '@uinaf/skillcheck':
-        specifier: 1.5.0
-        version: 1.5.0
+        specifier: 1.5.1
+        version: 1.5.1
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.1(@vitest/browser@5.0.1)(vitest@5.0.1)
@@ -911,8 +911,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@uinaf/skillcheck@1.5.0':
-    resolution: {integrity: sha512-ak3pLM5saEvU2DTBQoz0YyVBsvJTw7YqsP6VLN55RtfiFIMqlvtIrF4jg7ZDNTfAoONhr49RS8YJOGmh0rkHtg==}
+  '@uinaf/skillcheck@1.5.1':
+    resolution: {integrity: sha512-iybNZnZyklKQ9S1u9uAuANOKRPRQZtwaMZuCkWTuLz/tp0xODr7r6DtVq/HU7ibvR0MgzvySOiJ5p9gdyoWeew==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -2031,7 +2031,7 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@uinaf/skillcheck@1.5.0': {}
+  '@uinaf/skillcheck@1.5.1': {}
 
   '@vitest/browser-preview@5.0.1(@voidzero-dev/vite-plus-core@1.0.0(@types/node@26.6.3)(typescript@7.0.2))(vitest@5.0.1)':
     dependencies:
