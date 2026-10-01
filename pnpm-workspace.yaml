@@ -20,6 +20,9 @@ catalog:
   vitest: 5.0.1
   "@vitest/coverage-v8": 5.0.1
 minimumReleaseAgeExclude:
+  - "@effect/platform-node-shared@4.0.0"
+  - "@effect/platform-node@4.0.0"
+  - effect@4.0.0
   - "@voidzero-dev/vite-plus-core@1.0.0"
   - "@voidzero-dev/vite-plus-darwin-arm64@1.0.0"
   - "@voidzero-dev/vite-plus-darwin-x64@1.0.0"
