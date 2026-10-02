@@ -157,7 +157,7 @@ manifest metadata; it never encodes or copies the image.
 - [Distribution](./docs/DISTRIBUTION.md)
 - [vref skill](./skills/vref/SKILL.md)
 - [Agent guide](./AGENTS.md)
-- [Security](./SECURITY.md)
+- [Security](https://github.com/putdotio/.github/blob/main/SECURITY.md)
 
 ## Contributing
 
