@@ -18,6 +18,7 @@
 ## Commands
 
 - `pnpm install`, then `pnpm run verify` for the full gate; focused scripts are in [Contributing](https://github.com/putdotio/vref/blob/main/CONTRIBUTING.md#validation)
+- `vp` in the [Vite+ block](#using-vite-the-unified-toolchain-for-the-web) is the pinned `vite-plus` devDependency, not a global install: run it as `pnpm exec vp`. `vp env` exists only in the global CLI. Vite+ refreshes that block, so edit outside it
 - `vref describe --output json` lists every CLI command, flag, `--fields` value, and error code; usage examples are in the [README](./README.md) and [Visual Reference Guide](./docs/VREF.md)
 
 ## Proof And Delivery
