@@ -16,7 +16,7 @@ Release expectations:
 - npm package: `@putdotio/vref`, public access
 - npm Trusted Publishing through GitHub Actions OIDC for `putdotio/vref`, workflow `ci.yml`, Environment `release`, with provenance enabled in the release step
 - the `release` Environment has no deployment records and no human approval
-- `putio-releaser` writes tags, GitHub releases, and `[skip ci]` version bump commits, so it needs write access to protected `main` and `v*` tags
+- `putio-ci` writes tags, GitHub releases, and `[skip ci]` version bump commits, so it needs write access to protected `main` and `v*` tags
 
 ## Package Contents
 
