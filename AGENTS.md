@@ -20,6 +20,13 @@
 - `pnpm install`, then `pnpm run verify` for the full gate; focused scripts are in [Contributing](https://github.com/putdotio/vref/blob/main/CONTRIBUTING.md#validation)
 - `vref describe --output json` lists every CLI command, flag, `--fields` value, and error code; usage examples are in the [README](./README.md) and [Visual Reference Guide](./docs/VREF.md)
 
+## Proof And Delivery
+
+- Docs only: `pnpm run check`, plus `pnpm run skills:lint` for `skills/`; no runtime proof
+- Source or CLI changes: `pnpm run verify`; coverage is reported, not gated, so run `pnpm run coverage` when adding logic
+- Gallery output changes: build and serve a gallery from a repo's `.vref/` with the local CLI and attach a screenshot to the pull request
+- Open a pull request; CI runs `pnpm run verify` on pull requests and `main`. On `main`, a `feat`, `fix`, `perf` or breaking commit publishes `@putdotio/vref` to npm, and a published version number can never be reused. Release mechanics: [Distribution](./docs/DISTRIBUTION.md)
+
 ## Effect
 
 This repository uses the Effect TypeScript library. The installed version's own
