@@ -9,7 +9,7 @@ Merges to `main` are publishable.
 
 Links to files outside the tarball are absolute so they resolve for npm consumers.
 
-The release job calls the [shared frontend release workflow](https://github.com/putdotio/.github) from `putdotio/.github`, pinned to a reviewed commit SHA; the semantic-release action and plugin pins live there. The `verify` job ends with the shared [links](https://github.com/putdotio/.github#actionslinks) and [scan](https://github.com/putdotio/.github#actionsscan) actions from the same repository: an offline Markdown link and anchor check on every run, and an Actionlint and Zizmor audit when a `main` push changes workflows, or of the full history on manual dispatch.
+The release job calls the [shared frontend release workflow](https://github.com/putdotio/.github) from `putdotio/.github`, pinned to a reviewed commit SHA; the semantic-release action and plugin pins live there. The `verify` job ends with the shared [links](https://github.com/putdotio/.github#actionslinks) and [scan](https://github.com/putdotio/.github#actionsscan) actions from the same repository: an offline Markdown link and anchor check on every run, and an Actionlint and Zizmor audit when a `main` push changes workflows and on manual dispatch. GitHub secret scanning and push protection cover secrets in this public repository.
 
 Release expectations:
 
