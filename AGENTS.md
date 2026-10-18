@@ -10,8 +10,8 @@
 
 - [Overview](./README.md)
 - [Glossary](./CONTEXT.md) for what a reference, entry, asset, and source each mean here
-- [Visual Reference Guide](./docs/VREF.md)
-- [Distribution](./docs/DISTRIBUTION.md)
+- [Visual Reference Guide](./docs/vref.md)
+- [Distribution](./docs/distribution.md)
 - [Security](https://github.com/putdotio/.github/blob/main/SECURITY.md)
 - [vref Skill](./skills/vref/SKILL.md)
 
@@ -19,14 +19,14 @@
 
 - `pnpm install`, then `pnpm run verify` for the full gate; focused scripts are in [Contributing](https://github.com/putdotio/vref/blob/main/CONTRIBUTING.md#validation)
 - `vp` in the [Vite+ block](#using-vite-the-unified-toolchain-for-the-web) is the pinned `vite-plus` devDependency, not a global install: run it as `pnpm exec vp`. `vp env` exists only in the global CLI. Vite+ refreshes that block, so edit outside it
-- `vref describe --output json` lists every CLI command, flag, `--fields` value, and error code; usage examples are in the [README](./README.md) and [Visual Reference Guide](./docs/VREF.md)
+- `vref describe --output json` lists every CLI command, flag, `--fields` value, and error code; usage examples are in the [README](./README.md) and [Visual Reference Guide](./docs/vref.md)
 
 ## Proof And Delivery
 
 - Docs only: `pnpm run check`, plus `pnpm run skills:lint` for `skills/`; no tests or runtime proof. The Vite+ checklist below covers code changes
 - Source or CLI changes: `pnpm run verify`; coverage is reported, not gated, so run `pnpm run coverage` when adding logic
 - Gallery output changes: build and serve a gallery from a repo's `.vref/` with the local CLI and attach a screenshot to the pull request
-- Open a pull request; CI runs `pnpm run verify` on pull requests and `main`. On `main`, a `feat`, `fix`, `perf`, revert or breaking commit publishes `@putdotio/vref` to npm, and a published version number can never be reused. Release mechanics: [Distribution](./docs/DISTRIBUTION.md)
+- Open a pull request; CI runs `pnpm run verify` on pull requests and `main`. On `main`, a `feat`, `fix`, `perf`, revert or breaking commit publishes `@putdotio/vref` to npm, and a published version number can never be reused. Release mechanics: [Distribution](./docs/distribution.md)
 
 ## Effect
 

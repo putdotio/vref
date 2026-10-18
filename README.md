@@ -106,7 +106,7 @@ vref convert --dry-run --output json
 vref convert
 ```
 
-The [Visual Reference Guide](./docs/VREF.md#image-format) covers the format
+The [Visual Reference Guide](./docs/vref.md#image-format) covers the format
 choice, retina viewports, and what `convert` does to your originals.
 
 ## Manifest
@@ -152,9 +152,9 @@ manifest metadata; it never encodes or copies the image.
 
 ## Docs
 
-- [Visual Reference Guide](./docs/VREF.md)
+- [Visual Reference Guide](./docs/vref.md)
 - [Glossary](./CONTEXT.md)
-- [Distribution](./docs/DISTRIBUTION.md)
+- [Distribution](./docs/distribution.md)
 - [vref skill](./skills/vref/SKILL.md)
 - [Agent guide](./AGENTS.md)
 - [Security](https://github.com/putdotio/.github/blob/main/SECURITY.md)
