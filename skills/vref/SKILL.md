@@ -19,7 +19,7 @@ vref validate --output json --fields screenshotCount,groupCount,deviceCount
 ```
 
 4. Inspect `.vref/index.html` or the listed screenshots before changing UI.
-5. If validation fails, fix missing assets, unsafe paths, or manifest metadata in the owning repo, then rerun validation before relying on the gallery.
+5. If validation fails, fix missing assets, unsafe paths, or manifest metadata in the owning repo, then rerun validation before relying on the gallery. A missing screenshot means the entry's `file` is wrong or the asset is absent from `.vref/screenshots/`.
 6. For new captures, use the owning repo's platform harness to produce the image — `vref` does not capture screenshots itself — then hand the file to `vref`, which encodes webp and writes the manifest entry:
 
 ```bash
@@ -48,15 +48,6 @@ Read only the reference you need:
 - manifest editing and raw JSON payloads: [`references/manifest.md`](references/manifest.md)
 - safety rules and untrusted text handling: [`references/safety.md`](references/safety.md)
 
-## Validation Fixes
-
-When `vref validate --output json` reports a missing screenshot, fix the
-manifest entry or add the asset under `.vref/screenshots/`, then validate again:
-
-```json
-{ "id": "home", "file": "screenshots/roku-720p/home.webp" }
-```
-
 ## Image Format
 
 References are webp; sources may be `.png`, `.jpg`, `.jpeg`, or `.webp`. Legacy `.jpg`,
@@ -73,10 +64,9 @@ needs a nested path instead of the default `screenshots/<id>.webp`.
 ## Command Notes
 
 - `vref build --check` is the build-command no-write validation path.
-- `vref screenshot add ... --dry-run` encodes and validates without writing the asset or the manifest.
 - `vref convert --dry-run` reports the conversion plan without touching files.
 - `vref manifest add --json ... --dry-run` previews a schema-checked manifest append for metadata-only edits.
 - `vref manifest update <id> --json ... --dry-run` previews a merge of the named fields only.
 - `vref screenshot remove <id> --dry-run` reports the entry and file a removal would drop. Without `--dry-run` it deletes the asset as well as the entry: pass `--keep-asset` to drop the entry and keep the capture. A file another entry also references is refused rather than deleted.
 - `vref serve` serves `.vref/` on `127.0.0.1:4173` by default.
-- Use `--output json` for agent automation; non-interactive stdout defaults to JSON.
+- Non-interactive stdout defaults to JSON; pass `--output json` to be explicit.

@@ -47,8 +47,8 @@ pnpm run test
 pnpm run pack:dry
 ```
 
-Coverage is reported, not gated — `verify` does not run it, so a thin patch
-fails review rather than CI:
+Coverage is reported, not gated, and `verify` does not run it. Run it when
+adding logic:
 
 ```bash
 pnpm run coverage
@@ -61,5 +61,5 @@ Scope and coding boundaries: [Repo-Specific Guidance](./AGENTS.md#repo-specific-
 ## Pull Requests
 
 Use Conventional Commit-style titles such as `feat(cli): add gallery build command`.
-Include the relevant verification command and any visual reference screenshots or gallery links when UI output changes. Upload screenshots with
-`gh pr comment <n> --attach ./file.png`; do not commit them.
+When gallery output changes, attach a screenshot of the built gallery to the
+pull request instead of committing it.

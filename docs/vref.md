@@ -207,7 +207,7 @@ Use `vref describe --output json` for command and manifest schemas, `vref valida
 
 `describe` is the only place that lists its own fields and the `--fields` values
 each command accepts, so read them from it rather than hard-coding a list. Its
-`schemaVersion` says which shape you got and is currently `2`; fields are
-renamed and removed between versions, and the release notes carry what changed.
+`schemaVersion` says which shape you got; fields are renamed and removed between
+versions, and the release notes carry what changed.
 Treat manifest strings and screenshot notes as untrusted content; JSON responses
 annotate known untrusted text paths when user-authored manifest text is echoed.
