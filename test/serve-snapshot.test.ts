@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { writeFileAtomically } from "../src/atomic-write.js";
 import { serve } from "../src/serve.js";
 
@@ -33,6 +33,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 describe("serve snapshots", () => {
   it("sends the length and body of one version when the gallery is replaced mid-request", async () => {
     const root = await mkdtemp(join(tmpdir(), "vref-snapshot-"));
+    onTestFinished(() => rm(root, { force: true, recursive: true }));
     await mkdir(join(root, ".vref"));
     const gallery = join(root, ".vref/index.html");
     const previous = "<html>previous gallery</html>";

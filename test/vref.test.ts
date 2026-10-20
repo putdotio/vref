@@ -20,7 +20,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Cause, Effect } from "effect";
-import { describe, expect, it } from "vite-plus/test";
+import { afterAll, describe, expect, it, onTestFinished } from "vite-plus/test";
 import { buildGallery, orphansIn, validateGallery } from "../src/build.js";
 import {
   COMMAND_FIELDS,
@@ -47,6 +47,18 @@ import { addScreenshotFromSource } from "../src/screenshot-add.js";
 import { removeScreenshot } from "../src/screenshot-remove.js";
 import { isAllowedHost, resolveServableFile, serve } from "../src/serve.js";
 import type { VrefManifest, VrefScreenshotDraft } from "../src/types.js";
+
+const tempDirs: string[] = [];
+
+afterAll(async () => {
+  await Promise.all(tempDirs.map((dir) => rm(dir, { force: true, recursive: true })));
+});
+
+const tempDir = async (prefix: string) => {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
 
 describe("vref", () => {
   it("builds a gallery from a manifest and screenshots", async () => {
@@ -123,7 +135,7 @@ describe("vref", () => {
   });
 
   it("keeps arbitrary filter labels inert and distinct from All", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-labels-"));
+    const root = await tempDir("vref-labels-");
     await mkdir(join(root, ".vref/screenshots"), { recursive: true });
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=",
@@ -191,7 +203,7 @@ describe("vref", () => {
   });
 
   it("derives portrait and square card layouts from viewport dimensions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    const root = await tempDir("vref-");
     await mkdir(join(root, ".vref/screenshots"), { recursive: true });
     await writeFile(join(root, ".vref/screenshots/phone.png"), "image");
     await writeFile(join(root, ".vref/screenshots/square.png"), "image");
@@ -314,7 +326,7 @@ describe("vref", () => {
   });
 
   it("renders tag filter buttons only for tags used by multiple screenshots", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    const root = await tempDir("vref-");
     await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
     await writeFile(join(root, ".vref/screenshots/roku-720p/search.jpg"), "image");
     await writeFile(join(root, ".vref/screenshots/roku-720p/settings.jpg"), "image");
@@ -390,7 +402,7 @@ describe("vref", () => {
   });
 
   it("omits filter rows that only have one available value", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    const root = await tempDir("vref-");
     await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
     await writeFile(join(root, ".vref/screenshots/roku-720p/home.jpg"), "image");
     await writeFile(join(root, ".vref/screenshots/roku-720p/settings.jpg"), "image");
@@ -800,7 +812,7 @@ describe("vref", () => {
   });
 
   it("prints command help without touching default repo-local paths", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-"));
+    const root = await tempDir("vref-");
 
     const result = await captureConsoleLog(() =>
       Effect.runPromise(runCli(["serve", "--help"], root)),
@@ -1137,7 +1149,7 @@ async function makeFixture(
   file = "screenshots/roku-720p/home.jpg",
   tags = ["home", "navigation"],
 ): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "vref-"));
+  const root = await tempDir("vref-");
   await mkdir(join(root, ".vref/screenshots/roku-720p"), { recursive: true });
   await writeFile(join(root, ".vref/screenshots/roku-720p/home.jpg"), "image");
 
@@ -1174,7 +1186,7 @@ function makeManifest(file: string, tags: string[]): VrefManifest {
 
 describe("cli entry detection", () => {
   it("treats a symlinked entry path as a direct invocation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
+    const root = await tempDir("vref-entry-");
     const real = join(root, "cli.mjs");
     const link = join(root, "linked-cli.mjs");
     await writeFile(real, "");
@@ -1190,7 +1202,7 @@ describe("cli entry detection", () => {
   });
 
   it("still detects direct invocation when node keeps the main symlink", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
+    const root = await tempDir("vref-entry-");
     const real = join(root, "cli.mjs");
     const link = join(root, "linked-cli.mjs");
     await writeFile(real, "");
@@ -1204,7 +1216,7 @@ describe("cli entry detection", () => {
   });
 
   it("does not treat an unrelated entry path as a direct invocation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-entry-"));
+    const root = await tempDir("vref-entry-");
     const real = join(root, "cli.mjs");
     const other = join(root, "other.mjs");
     await writeFile(real, "");
@@ -1856,6 +1868,7 @@ describe("vref webp pipeline", () => {
     // a writable .vref/ — so the append fails only after the write, which is the
     // path rollback exists for.
     await chmod(join(root, ".vref"), 0o555);
+    onTestFinished(() => chmod(join(root, ".vref"), 0o755));
 
     await expect(
       addScreenshotFromSource({
@@ -2802,7 +2815,7 @@ describe("remove and update verbs", () => {
   });
 
   it("refuses to unlink a manifest that is its own asset", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vref-selfref-"));
+    const root = await tempDir("vref-selfref-");
     await mkdir(join(root, ".vref"), { recursive: true });
     const manifestPath = join(root, ".vref/gallery.webp");
     // A manifest named with an image extension parses, and an entry may point
@@ -3437,7 +3450,7 @@ async function makePng(path: string, width: number, height: number): Promise<num
 }
 
 async function makeWebpFixture(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "vref-webp-"));
+  const root = await tempDir("vref-webp-");
   await mkdir(join(root, ".vref"), { recursive: true });
   await writeFile(
     join(root, ".vref/manifest.json"),
@@ -3458,7 +3471,7 @@ async function makeWebpFixture(): Promise<string> {
 }
 
 async function makeLegacyFixture(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "vref-legacy-"));
+  const root = await tempDir("vref-legacy-");
   await mkdir(join(root, ".vref/screenshots"), { recursive: true });
   const legacyBytes = await makePng(join(root, ".vref/screenshots/legacy.png"), 64, 48);
   const currentPng = join(root, "current.png");
